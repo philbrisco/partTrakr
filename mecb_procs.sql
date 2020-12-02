@@ -24,33 +24,31 @@ CREATE OR REPLACE PROCEDURE api_config_ins(
        c_name	  VARCHAR,
        ct_name	  VARCHAR) AS $$
 DECLARE
-	counter		INTEGER:= 0;
-	rowcount	INTEGER:= 0;
-	max_id		BIGINT:= 0;
-	ct_id		BIGINT:= 0;
+	_counter	INTEGER:= 0;
+	_rowcount	INTEGER:= 0;
+	_max_id		BIGINT:= 0;
+	_ct_id		BIGINT:= 0;
 BEGIN
 
 	-- Obtain the next config_id in the mecb_config table.
 	SELECT
 		COALESCE(MAX(config_id) + 1,1)
 	INTO
-		max_id
+		_max_id
 	FROM
 		mecb_config;
-
-	ct_id = 0;
 
 	-- Obtain the config_type_id from the mecb_config_type table.
 	SELECT
 		COALESCE(config_type_id,0)
 	INTO
-		ct_id
+		_ct_id
 	FROM
 		mecb_config_type
 	WHERE
 		config_type	= ct_name;
 
-	IF ct_id = 0 OR ct_id IS NULL THEN
+	IF _ct_id = 0 OR _ct_id IS NULL THEN
 	   RAISE EXCEPTION '00201 Configuration type not found.';
 	END IF;
 
@@ -58,13 +56,13 @@ BEGIN
 	SELECT
 		COUNT(*)
 	INTO
-		counter
+		_counter
 	FROM
 		mecb_config
 	WHERE
 		config		= c_name;
 
-	IF counter > 0 THEN
+	IF _counter > 0 THEN
 	   RAISE EXCEPTION '00202: Configuration already exists.';
 	END IF;
 
@@ -80,15 +78,15 @@ BEGIN
 	       config_type_id)
 	VALUES	(
 		c_name,
-		max_id,
-		max_id,
-		max_id,
+		_max_id,
+		_max_id,
+		_max_id,
 		0,
-		ct_id);
+		_ct_id);
 
-	GET DIAGNOSTICS rowcount = row_count;
+	GET DIAGNOSTICS _rowcount = row_count;
 
-	IF rowcount = 0 THEN
+	IF _rowcount = 0 THEN
 	   RAISE EXCEPTION '00203: Insert into mecb_config failed.';
 	END IF;
 
@@ -97,7 +95,7 @@ BEGIN
 	       hist_id,
 	       action)
 	VALUES (
-	       max_id,
+	       _max_id,
 	       1,
 	       'Create');
 END; $$
@@ -289,18 +287,18 @@ LANGUAGE plpgsql;
 DROP FUNCTION IF EXISTS p_config_tree_upd CASCADE;
 CREATE OR REPLACE FUNCTION p_config_tree_upd() RETURNS TRIGGER AS $$
 DECLARE
-	c_id		BIGINT:= new.config_id;
-	pc_id		BIGINT:= new.parent_config_id;
-	rowcount	INTEGER:= 0;
-	counter		INTEGER:= 0;
+	_c_id		BIGINT:= new.config_id;
+	_pc_id		BIGINT:= new.parent_config_id;
+	_rowcount	INTEGER:= 0;
+	_counter	INTEGER:= 0;
 BEGIN
 
 	-- Ensure that no parts are attached to the configuration.
-	/*
+/*
 	SELECT
 		COUNT(*)
 	INTO
-		counter
+		_counter
 	FROM
 		mecb_part		a,
 		mecb_part_type		b,
@@ -315,15 +313,15 @@ BEGIN
 	AND	b.part_type_id		IS NOT NULL;
 */
 	SELECT
-		CounT(*)
+		COUNT(*)
 	INTO
-		rowcount
+		_rowcount
 	FROM
 		mecb_part
 	WHERE
-		config_id	= c_id;
+		config_id	= _c_id;
 
-	IF counter > 0 THEN
+	IF _rowcount > 0 THEN
 	   RAISE EXCEPTION '00301: Cannot move configuration while parts '
 	   	 'are attached to it.';
 	END IF;
@@ -337,24 +335,24 @@ BEGIN
 		mecb_config		b
 	WHERE
 		a.parent_config_id	= b.config_id
-	AND	a.config_id		= c_id
-	AND	a.parent_config_id	= pc_id
+	AND	a.config_id		= _c_id
+	AND	a.parent_config_id	= _pc_id
 	AND	a.config_id		!= b.config_id
 	AND	a.ancestor_config_id	!= b.ancestor_config_id;
 
-	GET DIAGNOSTICS rowcount = row_count;
+	GET DIAGNOSTICS _rowcount = row_count;
 
 	/*
 		If this is a top level configuration, the ancester_config_id,
 		parent_config_id and the config_id all need to be the same.
 	*/
-	IF rowcount = 0 THEN
+	IF _rowcount = 0 THEN
 	   UPDATE
 		mecb_config
 	   SET
-		ancestor_config_id	= c_id
+		ancestor_config_id	= _c_id
 	   WHERE
-		config_id		= c_id
+		config_id		= _c_id
 	   AND	parent_config_id	= config_id
 	   AND	ancestor_config_id	!= parent_config_id;
 	END IF;
@@ -370,7 +368,7 @@ BEGIN
 		mecb_config		b
 	WHERE
 		a.parent_config_id	= b.config_id
-	AND	b.config_id		= c_id
+	AND	b.config_id		= _c_id
 	AND	a.config_id		!= b.config_id;
 
 	RETURN NEW;
@@ -1163,12 +1161,11 @@ LANGUAGE plpgsql;
 /*
 	api_part_upd
 
-	The api for moving parts around.  It has twoo parms which are required
-	(pp_name and p_name) and an optional third parm which defaults to 0.
+	The api for moving parts around.  It has two parms which are required
+	(pp_name and p_name) and an optional third parm which defaults to ''.
 
-	If the third parm is 'NIL', then the part is and all of its progeny
-	are removed from the configurarion.  Otherwise, it is moved to the
-	configuration of the new parent part.
+	The third parm is the name of an optional configuration to reconfigure
+	this part to.  In effect, this changes the part's configuratin tree.
 
 	The part can only be moved to a new part that belongs to a
 	configuration.
@@ -1176,7 +1173,8 @@ LANGUAGE plpgsql;
 DROP PROCEDURE IF EXISTS api_part_upd CASCADE;
 CREATE PROCEDURE api_part_upd (
        pp_name	 	VARCHAR,
-       p_name	 	VARCHAR
+       p_name	 	VARCHAR,
+       c_name		VARCHAR DEFAULT ''
 ) AS $$
 DECLARE
 	_p_id		BIGINT:= 0;
@@ -1246,6 +1244,23 @@ BEGIN
 	   	 'configuration.';
 	END IF;
 
+	-- Check to see if the user has entered a configuration name.
+	IF LENGTH(TRIM(c_name)) > 0 THEN
+	   SELECT
+		config_id
+	   INTO
+		_c_id
+	   FROM
+		mecb_config
+	   WHERE
+		config		= c_name;
+
+	   IF _c_id IS NULL THEN
+	      RAISE EXCEPTION '01207: Invalid configuration name.';
+	   END IF;
+
+	END IF;
+	
 	/*
 		Find out if the configuration for the proposed parent part
 		allows this part to be attached to the parent.
@@ -1351,7 +1366,7 @@ BEGIN
 	   RAISE EXCEPTION '01212: This slot is already filled by another '
 	   	 'part.';
 	END IF;
-
+--raise exception 'gothere % % %',_c_id, _pp_id, _p_id;
 	-- Set the initial value which starts the recursive update cycle.
 	UPDATE
 		mecb_part
@@ -1458,7 +1473,8 @@ BEGIN
 	AND	d.part_type_id		= b.part_type_id
 	AND	e.config_type_id	= d.config_type_id
 
-	AND	e.parent_config_id	= a.config_id;
+	AND	e.parent_config_id	= a.config_id
+	AND	e.config_id		= b.config_id;
 
 	-- See if there is no configuration for this part.
 	SELECT
@@ -1705,6 +1721,12 @@ BEGIN
 		mecb_part_loc
 	WHERE
 		part_id		= _p_id;
+
+	-- Delete all scheduled maintenance actions for this part;
+	DELETE FROM
+	       mecb_sched_maint
+	WHERE
+		part_id	= _p_id;
 		
 	-- Recurse through all deletions of the selected tree.
 	DELETE FROM
@@ -1849,12 +1871,12 @@ DECLARE
 	_c_id		BIGINT	:= 0;
 BEGIN
 	
-	IF (p_name IS NULL) THEN
-	   RAISE EXCEPTION '1601: Part name needs to be entered.';
+	IF p_name IS NULL OR LENGTH(TRIM(p_name)) = 0 THEN
+	   RAISE EXCEPTION '01601: Part name needs to be entered.';
 	END IF;
 
-	IF (c_name IS NULL) THEN
-	   RAISE EXCEPTION '1602: Configuration name needs to be entered.';
+	IF c_name IS NULL OR LENGTH(TRIM(c_name)) = 0 THEN
+	   RAISE EXCEPTION '01602: Configuration name needs to be entered.';
 	END IF;
 
 	SELECT
@@ -1869,11 +1891,11 @@ BEGIN
 		part	= p_name;
 
 	IF _p_id IS NULL THEN
-	   RAISE EXCEPTION '1603: Invalid part name.';
+	   RAISE EXCEPTION '01603: Invalid part name.';
 	END IF;
 
 	IF (_p_id != _pp_id) THEN
-	   RAISE EXCEPTION '1604: part needs to be detached before reconfig.';
+	   RAISE EXCEPTION '01604: part needs to be detached before reconfig.';
 	END IF;
 
 	SELECT
@@ -1886,7 +1908,7 @@ BEGIN
 		config	= c_name;
 
 	IF _c_id IS NULL THEN
-	   RAISE EXCEPTION '1605: Invalid configuration name.';
+	   RAISE EXCEPTION '01605: Invalid configuration name.';
 	END IF;
 
 	/*
@@ -3047,3 +3069,378 @@ END; $$
 LANGUAGE plpgsql;
 
 /************************ End mecb_contact_det fiddly bits ***************/
+/************************ Begin mecb_maint_type fiddly bits **************/
+/*
+	api_maint_type_ins
+
+	Creates maintenance type for use by the maintenance subsystem.
+*/
+DROP PROCEDURE IF EXISTS api_maint_type_ins;
+CREATE OR REPLACE PROCEDURE api_maint_type_ins (
+     m_type    VARCHAR
+) AS $$
+DECLARE
+	_m_type_id	BIGINT:= 0;
+	_rowcount	INTEGER:= 0;
+BEGIN
+
+	IF m_type IS NULL OR LENGTH(TRIM(m_type)) = 0 THEN
+	   RAISE EXCEPTION '03401 New maintenance type has to be non blank.';
+	END IF;
+
+	-- Ensure the maintenance type doesn't already exist.
+	SELECT
+		COUNT(*)
+	INTO
+		_rowcount
+	FROM
+		mecb_maint_type
+	WHERE
+		LOWER(maint_type)	= LOWER(m_type);
+
+	IF _rowcount > 0 THEN
+	   RAISE EXCEPTION '03402 Maintenance type already exists.';
+	END IF;
+
+	-- Find the next monotonically increasing id.
+	SELECT
+		COALESCE(MAX(maint_type_id) + 1,1)
+	INTO
+		_m_type_id
+	FROM
+		mecb_maint_type;
+
+	INSERT INTO mecb_maint_type (
+	       maint_type_id,
+	       maint_type)
+	VALUES (
+	       _m_type_id,
+	       m_type);
+
+	GET DIAGNOSTICS _rowcount = row_count;
+
+	IF _rowcount = 0 THEN
+	   RAISE EXCEPTION '03403 Wasn''t able to create the new maintenance '
+	   	 'type.';
+	END IF;
+	
+END; $$
+LANGUAGE plpgsql;
+
+/*
+	api_maint_type_upd
+
+	Edits the maintenance type.
+*/
+DROP PROCEDURE IF EXISTS api_maint_type_upd;
+CREATE OR REPLACE PROCEDURE api_maint_type_upd (
+     old_type  VARCHAR,
+     new_type  VARCHAR
+) AS $$
+DECLARE
+	_old_type_id	BIGINT:= 0;
+	_new_type_id	BIGINT:= 0;
+	_rowcount	INTEGER:= 0;
+BEGIN
+
+	IF old_type IS NULL OR LENGTH(TRIM(old_type)) = 0 THEN
+	   RAISE EXCEPTION '03501: The maintenance type to change has to be '
+	   	 'non blank.';
+	END IF;
+
+	IF new_type IS NULL OR LENGTH(TRIM(new_type)) = 0 THEN
+	   RAISE EXCEPTION '03502: The new maintenance type has to be non '
+	   	 'blank.';
+	END IF;
+
+	-- Ensure the type to be changed exists.
+	SELECT
+		maint_type_id
+	INTO
+		_old_type_id
+	FROM
+		mecb_maint_type
+	WHERE
+		LOWER(maint_type)	= LOWER(old_type);
+
+	IF _old_type_id IS NULL THEN
+	   RAISE EXCEPTION '03503: Invalid maintenance type.';
+	END IF;
+
+	-- Ensure that the new edits don't already exist.
+	SELECT
+		COUNT(*)
+	INTO
+		_rowcount
+	FROM
+		mecb_maint_type
+	WHERE
+		LOWER(maint_type)	= LOWER(new_type);
+
+	IF _rowcount THEN
+	   RAISE EXCEPTION '03504: The changes conflict with a type that '
+	   	 'already exists.';
+	END IF;
+
+	UPDATE
+		mecb_maint_type
+	SET
+		maint_type	= new_type
+	WHERE
+		maint_type_id	= _old_type_id;
+
+	GET DIAGNOSTICS _rowcount = row_count;
+
+	IF _rowcount = 0 THEN
+	   RAISE EXCEPTION '03505; Wasn''t able to make the change.';
+	END IF;
+	
+END; $$
+LANGUAGE plpgsql;
+
+/*
+	api_maint_type_del
+
+	Deletes a maintenance type as long as it is not attached to any
+	maintenance action.
+*/
+DROP PROCEDURE IF EXISTS api_maint_type_del;
+CREATE OR REPLACE PROCEDURE api_maint_type_del (
+       m_type	  VARCHAR
+) AS $$
+DECLARE
+	_m_type_id	BIGINT:= 0;
+	_rowcount	INTEGER:= 0;
+BEGIN
+
+	IF m_type IS NULL OR LENGTH(TRIM(m_type)) = 0 THEN
+	   RAISE EXCEPTION '03601 Maintenance type to be deleted must be non '
+	   	 'blank.';
+	END IF;
+
+	-- Ensure the maintenance type to be deleted exists first.
+	SELECT
+		maint_type_id
+	INTO
+		_m_type_id
+	FROM
+		mecb_maint_type
+	WHERE
+		LOWER(maint_type)	= LOWER(m_type);
+
+	IF _m_type_id IS NULL THEN
+	   RAISE EXCEPTION '03602 Invalid maintenance type.';
+	END IF;
+
+	SELECT
+		COUNT(*)
+	INTO
+		_rowcount
+	FROM
+		mecb_sched_maint
+	WHERE
+		maint_type_id	= _m_type_id;
+
+	IF _rowcount > 0 THEN
+	   RAISE EXCEPTION '03603: The maintenance type is being used by a '
+	   	 'maintenance action.';
+	END IF;
+	
+	DELETE FROM
+	       mecb_maint_type
+	WHERE
+		maint_type_id	= _m_type_id;
+
+	GET DIAGNOSTICS _rowcount = row_count;
+
+	IF _rowcount = 0 THEN
+	   RAISE EXCEPTION '03604 Wasn''t able to delete the maintenance type';
+	END IF;
+	
+END; $$
+LANGUAGE plpgsql;
+
+/************************ End mecb_maint_type fiddly bits ****************/
+/************************ Begin mecb_sched_maint fiddly bits *************/
+/*
+	api_sched_maint_ins
+
+	Schedules dates to start and complete a maintenance action.
+*/
+DROP PROCEDURE IF EXISTS api_sched_maint_ins;
+CREATE OR REPLACE PROCEDURE api_sched_maint_ins (
+       p_name	  	    VARCHAR,
+       m_type		    VARCHAR,
+       b_date		    VARCHAR,
+       e_date		    VARCHAR
+) AS $$
+DECLARE
+	_p_id		BIGINT:= 0;
+	_m_type_id	BIGINT:= 0;
+	_b_date		DATE;
+	_e_date		DATE;
+	_rowcount	INTEGER:= 0;
+BEGIN
+
+	IF p_name IS NULL OR LENGTH(TRIM(p_name)) = 0 THEN
+	   RAISE EXCEPTION '03701: Part name has to be non blank.';
+	END IF;
+
+	IF m_type IS NULL OR LENGTH(TRIM(m_type)) = 0 THEN
+	   RAISE EXCEPTION '03702: Maintenance type has to be non blank.';
+	END IF;
+
+	IF b_date IS NULL OR LENGTH(TRIM(b_date)) = 0 THEN
+	   RAISE EXCEPTION '03703: Beginning date has to be non blank.';
+	END IF;
+
+	IF e_date IS NULL OR LENGTH(TRIM(e_date)) = 0 THEN
+	   RAISE EXCEPTION '03704: Ending date has to be non blank.';
+	END IF;
+
+	SELECT
+		part_id
+	INTO
+		_p_id
+	FROM
+		mecb_part
+	WHERE
+		LOWER(part)	= LOWER(p_name);
+
+	IF _p_id IS NULL THEN
+	   RAISE EXCEPTION '03705: Invalid part name.';
+	END IF;
+
+	SELECT
+		maint_type_id
+	INTO
+		_m_type_id
+	FROM
+		mecb_maint_type
+	WHERE
+		LOWER(maint_type)	= LOWER(m_type);
+
+	IF _m_type_id IS NULL THEN
+	   RAISE EXCEPTION '03706: Invalid maintenance type.';
+	END IF;
+	
+	SELECT
+		COUNT(*)
+	INTO
+		_rowcount
+	FROM
+		mecb_sched_maint
+	WHERE
+		part_id		= _p_id
+	AND	maint_type_id	= _m_type_id;
+
+	IF _rowcount > 0 THEN
+	   RAISE EXCEPTION '03707: Maintenance record for this part and type '
+	   	 'already exists.';
+	END IF;
+
+	SELECT
+		DATE(b_date)
+	INTO
+		_b_date;
+
+	IF _b_date IS NULL THEN
+	   RAISE EXCEPTION '03708: Invalid begin date.';
+	END IF;
+
+	SELECT
+		DATE(e_date)
+	INTO
+		_e_date;
+
+	IF _e_date IS NULL THEN
+	   RAISE EXCEPTION '03709: Invalid end date';
+	END IF;
+
+	INSERT INTO mecb_sched_maint (
+	       part_id,
+	       maint_type_id,
+	       begin_date,
+	       end_date)
+	VALUES (
+	       _p_id,
+	       _m_type_id,
+	       _b_date,
+	       _e_date);
+
+	GET DIAGNOSTICS _rowcount = row_count;
+
+	IF _rowcount = 0 THEN
+	   RAISE EXCEPTION '03710: Wasn''t able to create new scheduled '
+	   	 'maintenance record.';
+	END IF;
+	
+END; $$
+LANGUAGE plpgsql;
+
+/*
+	api_sched_maint_del
+
+	Deletes a scheduled maintenance action.
+*/
+DROP PROCEDURE IF EXISTS api_sched_maint_del;
+CREATE OR REPLACE PROCEDURE api_sched_maint_del (
+       p_name	  VARCHAR,
+       m_type	  VARCHAR
+) AS $$
+DECLARE
+	_p_id		BIGINT:= 0;
+	_mt_id		BIGINT:= 0;
+	_rowcount	INTEGER:= 0;
+BEGIN
+
+	IF p_name IS NULL OR LENGTH(TRIM(p_name)) = 0 THEN
+	   RAISE EXCEPTION '03801: Part name must be non blank.';
+	END IF;
+
+	IF m_type IS NULL OR LENGTH(TRIM(m_type)) = 0 THEN
+	   RAISE EXCEPTION '03802: Maintenance type must be non blank';
+	END IF;
+
+	SELECT
+		part_id
+	INTO
+		_p_id
+	FROM
+		mecb_part
+	WHERE
+		LOWER(part)	= LOWER(p_name);
+
+	IF _p_id IS NULL THEN
+	   RAISE EXCEPTION '03803: Invalid part name.';
+	END IF;
+
+	SELECT
+		maint_type_id
+	INTO
+		_mt_id
+	FROM
+		mecb_maint_type
+	WHERE
+		LOWER(maint_type)	= LOWER(m_type);
+
+	IF _mt_id IS NULL THEN
+	   RAISE EXCEPTION '03804: Invalid maintenance type.';
+	END IF;
+
+	DELETE FROM
+	       mecb_sched_maint
+	WHERE
+		part_id		= _p_id
+	AND	maint_type_id	= _mt_id;
+
+	GET DIAGNOSTICS _rowcount = row_count;
+
+	IF _rowcount = 0 THEN
+	   RAISE EXCEPTION '03805: Wasn''t able to delete maintenance action.';
+	END IF;
+	
+END; $$
+LANGUAGE plpgsql;
+
+/************************ End mecb_sched_maint fiddly bits ***************/

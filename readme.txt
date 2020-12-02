@@ -4,10 +4,23 @@ Legal:
 	This project is distributed under the Creative Commons license.
 
 Version:
+	1.2
+	12/2/2020
+	The configuration of a part could be changed automatically when it
+	was added to a part tree.  Changed this so that an error is thrown
+	instead, unless the user also enters the new configuration of the
+	part.
+
+	Fixed some error numbers that were incorrect.
+
+	Added some maintenance subsystem stuff (api_maint_type_ins,
+	api_maint_type_upd, api_maint_type_del, api_sched_maint_ins and
+	api_sched_maint_del).
+	
 	1.1
 	12/1/2020
-	Created procedures api_config_list and api_part_list which gives a
-	hierarchical list of a selected configuration part and all of its
+	Created procedures api_config_list and api_part_list which give a
+	hierarchical list of a selected configuration or part and all of its
 	progeny;
 	
 	1.0	(the pandemc build)
@@ -119,6 +132,16 @@ Programming Interface:
 	api_contact_det_upd
 	api_contact_det_del
 
+	api_maint_type_ins
+	api_maint_type_upd
+	api_maint_type_del
+
+	api_sched_maint_ins
+	api_sched_maint_del
+
+	api_config_list
+	api_part_list
+	
 	Additionally, two tables are currently used as utility tables to
 	support the database.  The first is the mecb_loc_type table which is
 	used to hold the types of locations.  These are curently 3-letter
@@ -147,11 +170,6 @@ Order of Execution:
 	to be arranged in a hierarchical manner.  Executing the following
 	routines in order will create a configuration and it's associated part.
 
-	Typically, if multiple parts are identical, they should share the same
-	configuraton (i.e. engines on a multi-engined plane).  They don't have
-	to, but it is a good practice and could save some headache down the
-	road if reconfiguration is ever necessary.
-	
 	api_part_type_ins   		  Creates a part type
 	api_config_type_ins		  Creates a configuration type
 					  and associates it with a part type
@@ -214,10 +232,12 @@ What the core APIs do:
 	The configuration of a part can change during update operations, but
 	it needs to know where to start.
 
-	API_PART_UPD has 2 paramters, the name of the new parent and the name
-	of the child to be attached to the parent.  Both parts must already
-	exist and be configured.  The parts are attached to each other via the
-	rules set down in their configurations.
+	API_PART_UPD has 3 paramters, the name of the new parent, the name
+	of the child to be attached to the parent and an optional configuration
+	name for the child.  Both parts must already exist and be configured.
+	The parts are attached to each other via the rules set down in their
+	configurations.  This can be changed, by giving a different, valid,
+	configuration name to the child so that it can change its configuration.
 
 	API_PART_REM has 1 parameter, the part name.  It removes the part and
 	its progeny from each other, making each part a top-level part.  It
@@ -308,6 +328,25 @@ Contact APIs:
 	detail for contact is deleted, otherwise only the detail for the
 	chosen type is deleted.
 
+Maintenance APIs (1.2):
+
+	    API_MAINT_TYPE_INS has 1 parameter, a new maintenance type to be
+	    created. This is a unique value.
+
+	    API_MAINT_TYPE_UPD has 2 parameters, the current maintenance type
+	    value, and the value that is to replace it.  The new value is
+	    checked first to ensure that it doesn't already exist.
+
+	    API_MAINT_TYPE_DEL has 1 parameter, the maintenance type.  This
+	    will be deleted if it is not being used by a maintenance action.
+
+	    API_SCHED_MAINT_INS has 4 parameters, the part name, the maintenance
+	    type, the scheduled begin date and the scheduled end date.  This
+	    creates a new maintenance action.
+
+	    API_SCHED_MAINT_DEL has 2 parameters, the part name and the
+	    maintenance type.  This will delete a specific maintenance action.
+	    
 List APis (1.1):
 
      API_CONFIG_LIST has 5 parameters, only 2 of which are needed by the user.
