@@ -1,9 +1,15 @@
 			      PartTrakr
 
 Legal:
-	This project is distributed under the GNU Commons license.
+	This project is distributed under the Creative Commons license.
 
 Version:
+	1.1
+	12/1/2020
+	Created procedures api_config_list and api_part_list which gives a
+	hierarchical list of a selected configuration part and all of its
+	progeny;
+	
 	1.0	(the pandemc build)
 	11/30/2020
 	Conceived and written by Phillip Brisco
@@ -302,13 +308,25 @@ Contact APIs:
 	detail for contact is deleted, otherwise only the detail for the
 	chosen type is deleted.
 
-To Do:
+List APis (1.1):
 
-	A recursive procedure that returns an indented list of the currently
-	chosen branch of the tree.  Sadly, the Postgres RECURSIVE command
-	doesn't seem to guarantee any particular order of returning the data.
-	Tbis is ok if one is trying to update or delete, but not so good if
-	trying to display it tree order.
+     API_CONFIG_LIST has 5 parameters, only 2 of which are needed by the user.
+     The c_name parameter is the name of the configuration tree to list and
+     the indent_type gives the type of list returned (true = indented list,
+     false = arrow list).  True is the default, so the user has the option of
+     only entering the configuration name, if so desired.  Tbis routine creates
+     and inserts the output into the mecb_config_tmp table, which is dropped
+     after the transacton is committed.  Therefore, in order to access this
+     table, it will have to be done within a transaction (BEGIN TRANSACTION
+     statement).  Executing the COMMIT statement will drop the table.
+
+     API_PART_LIST is the sister procedure for the api_config_list procedure.
+     It essentially does everything for the parts that the api_config_list
+     procedure does for the configurations.  Its temporary table is
+     mecb_part_tmp.  The result tree is in the tmp_name column (for both
+     tables).  The results can be ordered by the tmp_id column.
+     
+To Do:
 
 	A maintenance subsystem that includes the maintenance and history of
 	individual parts.

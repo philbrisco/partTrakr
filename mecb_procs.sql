@@ -322,7 +322,7 @@ BEGIN
 		mecb_part
 	WHERE
 		config_id	= c_id;
-raise warning 'gothere %',c_id;
+
 	IF counter > 0 THEN
 	   RAISE EXCEPTION '00301: Cannot move configuration while parts '
 	   	 'are attached to it.';
@@ -679,6 +679,117 @@ BEGIN
 		a.ancestor_config_id	!= a.config_id
 	)
 	SELECT ctename.config, ctename.config_id FROM ctename;
+
+END; $$
+LANGUAGE plpgsql;
+
+/*
+	api_config_list
+
+	Gets a tree list starting with a selected configuration.  Returns
+	either an indented list (indent type = true) or an arrow separated list
+	(indent	type = false).
+
+	Only the first two parameters are used for input by the user.
+	Everythinng else is used by the procedure.  The second parameter is an
+	optional one, since indented output is the default.
+
+	This is designed to work within a transaction, so BEGIN TRANSACTION
+	needs to be executed before calling the procedure, followed by a
+	COMMIT.
+*/
+DROP PROCEDURE IF EXISTS api_config_list;
+CREATE OR REPLACE PROCEDURE api_config_list (
+       c_name	  	    VARCHAR DEFAULT NULL,
+       indent_type	    BOOL DEFAULT TRUE,
+       c_id	  	    BIGINT  DEFAULT NULL,
+       ret_path		    VARCHAR DEFAULT '',
+       indent	  	    INTEGER DEFAULT 0
+) AS $$
+DECLARE
+	_tmp_id BIGINT:= 0;
+	_c_id	BIGINT:= 0;
+	_cname 	VARCHAR;
+	indent_jam	VARCHAR:= '';
+BEGIN
+
+	-- We need the configuration name when we first start.
+	IF LENGTH(TRIM(c_name)) = 0  AND c_id IS NULL THEN
+	   RAISE EXCEPTION '03301: Configuratino name has to be non blank.';
+	END IF;
+
+	IF LENGTH(TRIM(c_name)) > 0 THEN
+	   SELECT
+		config_id
+	   INTO
+		c_id
+	   FROM
+		mecb_config
+	   WHERE
+		config	= c_name;
+
+	   IF c_id IS NULL THEN
+	      RAISE EXCEPTION '03302: Invalid configuration name';
+	   END IF;
+
+	   -- Drop is done so that we get a fresh start even if inside a
+	   -- transaction.
+	   DROP TABLE IF EXISTS mecb_config_tmp;
+	   CREATE TEMP TABLE IF NOT EXISTS mecb_config_tmp (
+	   	  tmp_id	BIGINT,
+		  tmp_name	VARCHAR
+	   ) ON COMMIT DROP;
+
+	   ret_path = c_name;
+	END IF;
+
+	-- Get the next monotonically increasing id number.
+	SELECT
+		COALESCE(MAX(tmp_id) + 1,1)
+	INTO
+		_tmp_id
+	FROM
+		mecb_config_tmp;
+
+	-- If the list is to be indented, then we set up indent_jam.
+	IF indent_type THEN
+	   -- Calculate indentation level.
+	   FOR i in 1..indent LOOP
+	       indent_jam = indent_jam || ' ';
+	   END LOOP;
+	END IF;
+
+	-- Insert the result into the temporary table.
+	INSERT INTO mecb_config_tmp (
+	       tmp_id,
+	       tmp_name)
+	VALUES (
+	       _tmp_id,
+	       indent_jam || ret_path);
+
+	FOR
+		_c_id,
+		_cname
+	IN SELECT
+		config_id,
+		config
+	FROM
+		mecb_config
+	WHERE
+		parent_config_id = c_id
+	AND	parent_config_id != config_id LOOP
+
+		-- If this is an indented list, pass the config name otherwise
+		-- pass the config path in arrow format.
+		IF indent_type THEN
+		   	call api_config_list ('',indent_type,_c_id,_cname ,
+			     indent + 1);
+		ELSE
+			call api_config_list ('',indent_type,_c_id,
+			     ret_path || '-->' || _cname , indent + 1);
+		END IF;
+		
+	END LOOP;
 
 END; $$
 LANGUAGE plpgsql;
@@ -1610,6 +1721,115 @@ CREATE TRIGGER r_part_tree_del
        AFTER DELETE ON mecb_part
        FOR EACH ROW
        EXECUTE FUNCTION p_part_tree_del();
+
+/*
+	api_part_list
+
+	Gets a tree list starting with a selected part.  Returns either an
+	indented list (indent type = true) or an arrow separated list (indent
+	type = false).
+
+	Only the first two parameters are used for input by the user.
+	Everythinng else is used by the procedure.  The second parameter is an
+	optional one, since indented output is the default.
+
+	This is designed to work within a transaction.
+*/
+DROP PROCEDURE IF EXISTS api_part_list;
+CREATE OR REPLACE PROCEDURE api_part_list (
+       p_name	  	    VARCHAR DEFAULT NULL,
+       indent_type	    BOOL DEFAULT TRUE,
+       p_id	  	    BIGINT  DEFAULT NULL,
+       ret_path		    VARCHAR DEFAULT '',
+       indent	  	    INTEGER DEFAULT 0
+) AS $$
+DECLARE
+	_tmp_id BIGINT:= 0;
+	_p_id	BIGINT:= 0;
+	_pname 	VARCHAR;
+	indent_jam	VARCHAR:= '';
+BEGIN
+
+	-- We need the part name when we first start.
+	IF LENGTH(TRIM(p_name)) = 0  AND p_id IS NULL THEN
+	   RAISE EXCEPTION '03201: Part name has to be non blank.';
+	END IF;
+
+	IF LENGTH(TRIM(p_name)) > 0 THEN
+	   SELECT
+		part_id
+	   INTO
+		p_id
+	   FROM
+		mecb_part
+	   WHERE
+		part	= p_name;
+
+	   IF p_id IS NULL THEN
+	      RAISE EXCEPTION '03202: Invalid part name';
+	   END IF;
+
+	   -- Drop is done so that we get a fresh start even if inside a
+	   -- transaction.
+	   DROP TABLE IF EXISTS mecb_part_tmp;
+	   CREATE TEMP TABLE IF NOT EXISTS mecb_part_tmp (
+	   	  tmp_id	BIGINT,
+		  tmp_name	VARCHAR
+	   ) ON COMMIT DROP;
+
+	   ret_path = p_name;		  
+	END IF;
+
+	-- Get the next monotonically increasing id number.
+	SELECT
+		COALESCE(MAX(tmp_id) + 1,1)
+	INTO
+		_tmp_id
+	FROM
+		mecb_part_tmp;
+
+	-- If the list is to be indented, then we set up indent_jam.
+	IF indent_type THEN
+	   -- Calculate indentation level.
+	   FOR i in 1..indent LOOP
+	       indent_jam = indent_jam || ' ';
+	   END LOOP;
+	END IF;
+
+	-- Insert the result into the temporary table.
+	INSERT INTO mecb_part_tmp (
+	       tmp_id,
+	       tmp_name)
+	VALUES (
+	       _tmp_id,
+	       indent_jam || ret_path);
+
+	FOR
+		_p_id,
+		_pname
+	IN SELECT
+		part_id,
+		part
+	FROM
+		mecb_part
+	WHERE
+		parent_part_id = p_id
+	AND	parent_part_id != part_id LOOP
+
+		-- If this is an indented list, pass the part name otherwise
+		-- pass the part path in arrow format.
+		IF indent_type THEN
+		   	call api_part_list ('',indent_type,_p_id,_pname ,
+			     indent + 1);
+		ELSE
+			call api_part_list ('',indent_type,_p_id,
+			     ret_path || '-->' || _pname , indent + 1);
+		END IF;
+		
+	END LOOP;
+
+END; $$
+LANGUAGE plpgsql;
 
 /************************ End mecb_part fiddly bits **********************/
 /************************ Begin mecb_part_config fiddly bits *************/
