@@ -4,8 +4,13 @@ Legal:
 	This project is distributed under the Creative Commons license.
 
 Version:
+	1.3
+	12/2/2020	Phillip Brisco
+	Created the api_maint_hist procedure to create the history of
+	maintenance actions.
+	
 	1.2
-	12/2/2020
+	12/2/2020	Phillip Brisco
 	The configuration of a part could be changed automatically when it
 	was added to a part tree.  Changed this so that an error is thrown
 	instead, unless the user also enters the new configuration of the
@@ -18,14 +23,14 @@ Version:
 	api_sched_maint_del).
 	
 	1.1
-	12/1/2020
+	12/1/2020	Phillip Brisco
 	Created procedures api_config_list and api_part_list which give a
 	hierarchical list of a selected configuration or part and all of its
 	progeny;
 	
 	1.0	(the pandemc build)
 	11/30/2020
-	Conceived and written by Phillip Brisco
+	Conceived, designed and written by Phillip Brisco
 	
 Summary:
 
@@ -160,7 +165,29 @@ Programming Interface:
 		  ext	     extension
 		  pemail     personal email
 		  bemail     business email
+Tables:
 
+	mecb_config		Configuration pattern
+	mecb_part_type		Part type table
+	mecb_config_type	Configuration type table
+	mecb_part		Part table
+	mecb_config_audit	Keeps track of changes made to mecb_config
+	mecb_part_audit		Keeps track of changes made to mecb_part
+	mecb_loc		Location
+	mecb_part_loc		Part location
+	mecb_addr_loc		Location address
+	mecb_contact		Contact
+	mecb_contact_loc	Location contact
+	mecb_contact_det	Contact detail (phone, fax, email, etc.)
+	mec_sched_maint		Scheduled maintenance action
+	mecb_loc_type		Location types
+	mecb_contact_det_type	Contact detail type
+	mecb_maint_type		Maintenance type
+	mecb_maint_hist		Maintenance history for the part
+	
+	mecb_config_tmp		Temporary table holds configuration list tree.
+	mecb_part_tmp		Temporary table holds the part list tree.
+	
 Order of Execution:
 
 	The first thing that needs to be done is to create a part type and
@@ -244,7 +271,8 @@ What the core APIs do:
 	keeps the configuration of each part though.
 
 	API_PART_DEL has 1 parameter, the part name.  It deletes a part and all
-	of its progeny.
+	of its progeny.  It also deletes all associated rows in the tables
+	mecb_maint_history and mecb_sched_maint.
 
 Location APIs:
 
@@ -346,6 +374,11 @@ Maintenance APIs (1.2):
 
 	    API_SCHED_MAINT_DEL has 2 parameters, the part name and the
 	    maintenance type.  This will delete a specific maintenance action.
+
+	    (1.3)
+	    API_MAINT_HIST_INS has 4 parameters, the part name, the maintenance
+	    type, the date the action took place for the maintenance action and
+	    the remarks about the action.  All parameters are required.
 	    
 List APis (1.1):
 

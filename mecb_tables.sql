@@ -168,6 +168,37 @@ CREATE TABLE IF NOT EXISTS mecb_contact_det (
        PRIMARY KEY (contact_id,det_id)
 );\qecho '        mecb_contact_det'
 
+-- Maintenance type;
+DROP TABLE IF EXISTS mecb_maint_type\g\qecho '        mecb_maint_type'
+
+CREATE TABLE IF NOT EXISTS mecb_maint_type (
+       maint_type_id	   BIGINT UNIQUE,
+       maint_type	   VARCHAR,
+       PRIMARY KEY	   (maint_type)
+);\qecho '        mecb_maint_type'
+
+-- Scheduled Maintenance
+DROP TABLE IF EXISTS mecb_sched_maint\g\qecho '        mecb_sched_maint'
+CREATE TABLE IF NOT EXISTS mecb_sched_maint (
+       part_id		   BIGINT,
+       maint_type_id	   BIGINT,
+       begin_date	   DATE NULL,
+       end_date		   DATE NULL,
+       PRIMARY KEY	   (part_id,maint_type_id)
+);\qecho '        mecb_sched_maint'
+
+-- Maintenance History
+DROP TABLE IF EXISTS mecb_maint_hist\g\qecho '        mecb_maint_hist'
+CREATE TABLE IF NOT EXISTS mecb_maint_hist (
+       part_id	    	BIGINT,
+       hist_id		BIGINT,
+       date_made	DATE NOT NULL DEFAULT now(),
+       action_complete	DATE,
+       maint_type	VARCHAR,
+       maint		VARCHAR,
+       PRIMARY KEY	(part_id, hist_id)
+);
+
 /******************** Utility tables ***********************/
 
 -- Location type
