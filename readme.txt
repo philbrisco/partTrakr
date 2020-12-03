@@ -4,11 +4,6 @@ Legal:
 	This project is distributed under the Creative Commons license.
 
 Version:
-	1.3
-	12/2/2020	Phillip Brisco
-	Created the api_maint_hist procedure to create the history of
-	maintenance actions.
-	
 	1.2
 	12/2/2020	Phillip Brisco
 	The configuration of a part could be changed automatically when it
@@ -19,8 +14,8 @@ Version:
 	Fixed some error numbers that were incorrect.
 
 	Added some maintenance subsystem stuff (api_maint_type_ins,
-	api_maint_type_upd, api_maint_type_del, api_sched_maint_ins and
-	api_sched_maint_del).
+	api_maint_type_upd, api_maint_type_del, api_sched_maint_ins,
+	api_sched_maint_del and api_maint_hist_ins).
 	
 	1.1
 	12/1/2020	Phillip Brisco
@@ -375,7 +370,6 @@ Maintenance APIs (1.2):
 	    API_SCHED_MAINT_DEL has 2 parameters, the part name and the
 	    maintenance type.  This will delete a specific maintenance action.
 
-	    (1.3)
 	    API_MAINT_HIST_INS has 4 parameters, the part name, the maintenance
 	    type, the date the action took place for the maintenance action and
 	    the remarks about the action.  All parameters are required.
