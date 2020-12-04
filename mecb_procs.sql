@@ -3,7 +3,7 @@
 	part tracker database.
 */
 --set client_min_messages TO WARNING;
-
+--\set VERBOSE terse
 /*************************** Begin mecb_config fiddly bits ****************/
 /*
 	The api_config_ins procedure inserts a new record into the mecb_config
@@ -22,7 +22,9 @@
 DROP PROCEDURE IF EXISTS api_config_ins CASCADE;
 CREATE OR REPLACE PROCEDURE api_config_ins(
        c_name	  VARCHAR,
-       ct_name	  VARCHAR) AS $$
+       ct_name	  VARCHAR,
+       slots	  INTEGER DEFAULT 1
+) AS $$
 DECLARE
 	_counter	INTEGER:= 0;
 	_rowcount	INTEGER:= 0;
@@ -74,15 +76,17 @@ BEGIN
 	       config_id,
 	       ancestor_config_id,
 	       parent_config_id,
-	       level,
-	       config_type_id)
+	       config_type_id,
+	       tot_slots,
+	       level)
 	VALUES	(
 		c_name,
 		_max_id,
 		_max_id,
 		_max_id,
-		0,
-		_ct_id);
+		_ct_id,
+		slots,
+		0);
 
 	GET DIAGNOSTICS _rowcount = row_count;
 
@@ -294,24 +298,6 @@ DECLARE
 BEGIN
 
 	-- Ensure that no parts are attached to the configuration.
-/*
-	SELECT
-		COUNT(*)
-	INTO
-		_counter
-	FROM
-		mecb_part		a,
-		mecb_part_type		b,
-		mecb_config_type	c,
-		mecb_config		d
-	WHERE
-		d.config_id		= c_id
-	AND	c.config_type_id	= d.config_type_id
-	AND	b.part_type_id		= c.part_type_id
-	AND	a.part_type_id		= b.part_type_id
-	AND	a.config_id		> 0
-	AND	b.part_type_id		IS NOT NULL;
-*/
 	SELECT
 		COUNT(*)
 	INTO
@@ -1137,6 +1123,12 @@ BEGIN
 	   	 pt_name;
 	END IF;
 
+	-- Delete all part audit transactions > 7 days old.
+	DELETE FROM
+	       mecb_part_audit
+	WHERE
+		current_date - transaction_date > 7;
+		
 	SELECT
 		COALESCE(MAX(hist_id) + 1,1)
 	INTO
@@ -1173,8 +1165,7 @@ LANGUAGE plpgsql;
 DROP PROCEDURE IF EXISTS api_part_upd CASCADE;
 CREATE PROCEDURE api_part_upd (
        pp_name	 	VARCHAR,
-       p_name	 	VARCHAR,
-       c_name		VARCHAR DEFAULT ''
+       p_name	 	VARCHAR
 ) AS $$
 DECLARE
 	_p_id		BIGINT:= 0;
@@ -1190,12 +1181,12 @@ DECLARE
 	_hist_id	INTEGER:= 0;
 BEGIN
 
-	IF p_name IS NULL THEN
-	   RAISE EXCEPTION '01201: Part name needs to be entered.';
+	IF p_name IS NULL OR LENGTH(TRIM(p_name)) = 0 THEN
+	   RAISE EXCEPTION '01201: Part name cannot be blank.';
 	END IF;
 
-	IF pp_name IS NULL THEN
-	   RAISE EXCEPTION '01202: The new parent part needs bo be entered.';
+	IF pp_name IS NULL OR LENGTH(TRIM(pp_name)) = 0 THEN
+	   RAISE EXCEPTION '01202: The parent part cannot be blank.';
 	END IF;
 
 	-- Does the new parent exist?
@@ -1209,7 +1200,7 @@ BEGIN
 		part	= pp_name;
 
 	IF _pp_id IS NULL THEN
-	   RAISE EXCEPTION '01203: The new parent part does not exist.';
+	   RAISE EXCEPTION '01203: The parent part name is invalid.';
 	END IF;
 
 	-- Does the part exist?
@@ -1223,7 +1214,7 @@ BEGIN
 		part	= p_name;
 
 	IF _p_id IS NULL THEN
-	   RAISE EXCEPTION '01205: The part to move does not exist.';
+	   RAISE EXCEPTION '01205: The part name is invalid.';
 	END IF;
 
 	-- Does the configuration exist?
@@ -1244,23 +1235,6 @@ BEGIN
 	   	 'configuration.';
 	END IF;
 
-	-- Check to see if the user has entered a configuration name.
-	IF LENGTH(TRIM(c_name)) > 0 THEN
-	   SELECT
-		config_id
-	   INTO
-		_c_id
-	   FROM
-		mecb_config
-	   WHERE
-		config		= c_name;
-
-	   IF _c_id IS NULL THEN
-	      RAISE EXCEPTION '01207: Invalid configuration name.';
-	   END IF;
-
-	END IF;
-	
 	/*
 		Find out if the configuration for the proposed parent part
 		allows this part to be attached to the parent.
@@ -1328,28 +1302,15 @@ BEGIN
 
 	-- Get the number of slots available.
 	SELECT
-		COUNT(*)
+		tot_slots
 	INTO
 		_num_slots
 	FROM
-		mecb_part		a,
-		mecb_part		b,
-
-		mecb_config_type	d,
-		mecb_config		e,
-		mecb_config_type	g,
-		mecb_config		h
+		mecb_part	a,
+		mecb_config	b
 	WHERE
-		a.part_id		= _pp_id
-	AND	b.part_id	  	= _p_id
-	
-	AND	d.part_type_id		= a.part_type_id
-	AND	e.config_type_id	= d.config_type_id
-	
-	AND	g.part_type_id		= b.part_type_id
-	AND	h.config_type_id	= g.config_type_id
-
-	AND	h.parent_config_id	= e.config_id;
+		a.part_id	= _p_id
+	AND	b.config_id	= a.config_id;
 
 	-- Get the number of slots used.
 	SELECT
@@ -1366,7 +1327,7 @@ BEGIN
 	   RAISE EXCEPTION '01212: This slot is already filled by another '
 	   	 'part.';
 	END IF;
---raise exception 'gothere % % %',_c_id, _pp_id, _p_id;
+
 	-- Set the initial value which starts the recursive update cycle.
 	UPDATE
 		mecb_part
@@ -1456,7 +1417,7 @@ BEGIN
 		This passes the child configuration of the parent back
 		to this recursively called function.
 	*/
-	SELECT
+      	SELECT
 		e.config_id
 	INTO
 		_c_id
@@ -1493,15 +1454,8 @@ BEGIN
 	END IF;
 
 	-- Update the current row's config_id.
-	IF _c_id IS NOT NULL THEN
-		UPDATE
-			mecb_part
-		SET
-			config_id	= _c_id
-		WHERE
-			part_id		= _p_id;
-	ELSIF _p_id != _pp_id THEN
-	     RAISE EXCEPTION '01304: Invalid or incomplete configuration tree.';
+	IF _c_id IS NULL AND _p_id != _pp_id THEN
+	   RAISE EXCEPTION '01304: Invalid or incomplete configuration tree.';
 	END IF;
 	
 	-- Do a recursive update through the tree.
@@ -1716,6 +1670,7 @@ DECLARE
 	_pp_id		BIGINT:= old.parent_part_id;
 	_counter	INTEGER;
 BEGIN
+raise warning 'gothere % %',_p_id,_pp_id;
 	-- Delete part locations as without the parts we no longer need them.
 	DELETE FROM
 		mecb_part_loc
@@ -1727,6 +1682,12 @@ BEGIN
 	       mecb_sched_maint
 	WHERE
 		part_id	= _p_id;
+
+	-- Delete part maintenance history.
+	DELETE FROM
+	       mecb_maint_hist
+	WHERE
+		part_id = _p_id;
 		
 	-- Recurse through all deletions of the selected tree.
 	DELETE FROM
@@ -1899,6 +1860,21 @@ BEGIN
 	END IF;
 
 	SELECT
+		COUNT(*)
+	INTO
+		_rowcount
+	FROM
+		mecb_part
+	WHERE
+		parent_part_id	= _p_id
+	AND	part_id		!= parent_part_id;
+
+	IF _rowcount > 0 THEN
+	   RAISE EXCEPTION '01605: All children of this part need to be '
+	   	 'detached before reconfig.';
+	END IF;
+	
+	SELECT
 		config_id
 	INTO
 		_c_id
@@ -1908,7 +1884,7 @@ BEGIN
 		config	= c_name;
 
 	IF _c_id IS NULL THEN
-	   RAISE EXCEPTION '01605: Invalid configuration name.';
+	   RAISE EXCEPTION '01606: Invalid configuration name.';
 	END IF;
 
 	/*
@@ -1956,26 +1932,12 @@ BEGIN
 	   END IF;
 
 	   IF _rowcount = 0 THEN
-	   	   RAISE EXCEPTION '01606: Invalid part type for the '
+	   	   RAISE EXCEPTION '01607: Invalid part type for the '
 		   	 'configuration.';
 	   END IF;
 
 	END IF;
-/*
-	SELECT
-		COUNT(*)
-	INTO
-		_rowcount
-	FROM
-		mecb_part
-	WHERE
-		config_id	= _c_id;
 
-	IF _rowcount > 0 THEN
-	   RAISE EXCEPTION '01607: A part already exists for this '
-	   	 'configuration.';
-	END IF;
-*/
 	UPDATE
 		mecb_part
 	SET
@@ -3444,3 +3406,110 @@ END; $$
 LANGUAGE plpgsql;
 
 /************************ End mecb_sched_maint fiddly bits ***************/
+/************************ Begin mecb_maint_hist fiddly bits **************/
+/*
+	api_maint_hist_ins
+
+	Creates a history record for a maintenance action.
+*/
+DROP PROCEDURE IF EXISTS api_maint_hist_ins;
+CREATE OR REPLACE PROCEDURE api_maint_hist_ins (
+       p_name	  VARCHAR,
+       mt_name	  VARCHAR,
+       act_date	  VARCHAR,
+       m_stuff	  VARCHAR
+) AS $$
+DECLARE
+	_p_id		BIGINT:= 0;
+	_h_id		Bigint:= 0;
+	_act_date	DATE;
+	_rowcount	INTEGER:= 0;
+BEGIN
+
+	IF p_name IS NULL OR LENGTH(TRIM(p_name)) = 0 THEN
+	   RAISE EXCEPTION '03901: Part name must be non blank.';
+	END IF;
+
+	IF mt_name IS NULL OR LENGTH(TRIM(mt_name)) = 0 THEN
+	   RAISE EXCEPTION '03902: Maintenance type must be non blank.';
+	END IF;
+	
+	IF act_date IS NULL OR LENGTH(TRIM(act_date)) = 0 THEN
+	   RAISE EXCEPTION '03903: Action date must not be blank.';
+	END IF;
+
+	IF m_stuff IS NULL OR LENGTH(TRIM(m_stuff)) = 0 THEN
+	   RAISE EXCEPTION '03904: Maintenance record has to be non blank.';
+	END IF;
+	
+	-- Ensure that the part exists.
+	SELECT
+		part_id
+	INTO
+		_p_id
+	FROM
+		mecb_part
+	WHERE
+		LOWER(part)	= LOWER(p_name);
+
+	IF _p_id IS NULL THEN
+	   RAISE EXCEPTION '03905: Invalid part name.';
+	END IF;
+
+	-- Get the next monotonically increasing history id for the part.
+	SELECT
+		COALESCE(MAX(hist_id) + 1, 1)
+	INTO
+		_h_id
+	FROM
+		mecb_maint_hist
+	WHERE
+		part_id		= _p_id;
+		
+	-- Ensure that the maintenance type exists.
+	SELECT
+		COUNT(*)
+	INTO
+		_rowcount
+	FROM
+		mecb_maint_type
+	WHERE
+		LOWER(maint_type)	= LOWER(mt_name);
+
+	IF _rowcount = 0 THEN
+	   RAISE EXCEPTION '03906: Invalid maintenance type.';
+	END IF;
+	
+	SELECT
+		DATE(act_date)
+	INTO
+		_act_date;
+
+	IF _act_date IS NULL THEN
+	   RAISE EXCEPTION '03907: Invalid action date.';
+	END IF;
+
+	INSERT INTO mecb_maint_hist (
+	       part_id,
+	       hist_id,
+	       action_complete,
+	       maint_type,
+	       maint)
+	VALUES (
+	       _p_id,
+	       _h_id,
+	       _act_date,
+	       mt_name,
+	       m_stuff);
+
+	GET DIAGNOSTICS _rowcount = row_count;
+
+	IF _rowcount = 0 THEN
+	   RAISE EXCEPTION '03908: Wasn''t able to create maintenance history '
+	   	 'record.';
+	END IF;
+	
+END; $$
+LANGUAGE plpgsql;
+
+/************************ End mecb_maint_hist fiddly bits ****************/

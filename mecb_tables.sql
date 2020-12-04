@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS mecb_config (
        ancestor_config_id	BIGINT NOT NULL DEFAULT 0,
        parent_config_id		BIGINT NOT NULL DEFAULT 0,
        config_type_id		BIGINT NOT NULL DEFAULT 0,
+       tot_slots		INTEGER NOT NULL DEFAULT 1,
        level			INTEGER NOT NULL DEFAULT 0,
        PRIMARY KEY		(config)
 );\qecho '        mecb_config';
@@ -80,8 +81,6 @@ CREATE TABLE IF NOT EXISTS mecb_config_audit (
      transaction_time		 TIME NOT NULL DEFAULT current_time,
      cur_user			 NAME NOT NULL DEFAULT current_user,
      sess_user			  NAME NOT NULL DEFAULT session_user,
-     client_add			 INET NOT NULL DEFAULT inet_client_addr(),
-     client_port		 INT NOT NULL DEFAULT inet_client_port(),
      PRIMARY KEY		 (config_id, hist_id)
 );\qecho '        mecb_config_audit'
 
@@ -92,14 +91,12 @@ CREATE TABLE IF NOT EXISTS mecb_part_audit (
      part_id	     		 BIGINT,
      hist_id			 INTEGER,
      action			 VARCHAR,
-     transaction_date		 DATE NOT NULL DEFAULT current_date,
-     transaction_time		 TIME NOT NULL DEFAULT current_time,
-     cur_user			 NAME NOT NULL DEFAULT current_user,
-     sess_user			  NAME NOT NULL DEFAULT session_user,
-     client_add			 INET NOT NULL DEFAULT inet_client_addr(),
-     client_port		 INT NOT NULL DEFAULT inet_client_port(),
+     transaction_date		 DATE DEFAULT current_date,
+     transaction_time		 TIME DEFAULT current_time,
+     cur_user			 NAME DEFAULT current_user,
+     sess_user			 NAME DEFAULT session_user,
      PRIMARY KEY		 (part_id, hist_id)
-);\qecho '        mecb_part_audit'
+);\qecho '        mecb_partaudit'
 
 -- Location data.
 DROP TABLE IF EXISTS mecb_loc\g\qecho '        mecb_loc'
