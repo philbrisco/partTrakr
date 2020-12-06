@@ -32,6 +32,14 @@ DECLARE
 	_ct_id		BIGINT:= 0;
 BEGIN
 
+	IF c_name IS NULL OR LENGTH(TRIM(c_name)) = 0 THEN
+	   RAISE EXCEPTION '00201: Configuration must be non blank.';
+	END IF;
+
+	IF ct_name IS NULL OR LENGTH(TRIM(ct_name)) = 0 THEN
+	   RAISE EXCEPTION '00202: Configuration type must be non blank.';
+	END IF;
+	
 	-- Obtain the next config_id in the mecb_config table.
 	SELECT
 		COALESCE(MAX(config_id) + 1,1)
@@ -51,7 +59,7 @@ BEGIN
 		config_type	= ct_name;
 
 	IF _ct_id = 0 OR _ct_id IS NULL THEN
-	   RAISE EXCEPTION '00201 Configuration type not found.';
+	   RAISE EXCEPTION '00203 Configuration type not found.';
 	END IF;
 
 	-- See if the configuration already exists.
@@ -65,9 +73,14 @@ BEGIN
 		config		= c_name;
 
 	IF _counter > 0 THEN
-	   RAISE EXCEPTION '00202: Configuration already exists.';
+	   RAISE EXCEPTION '00204: Configuration already exists.';
 	END IF;
 
+	-- Slots have to be at least one.
+	IF slots < 1 THEN
+	   slots = 1;
+	END IF;
+	
 	-- Insert the new configuration record into the mecb_config table.
 	-- Since this is a new record, the config_id, parent_config_id
 	-- and ancestor_config_id are all the same.
@@ -91,9 +104,10 @@ BEGIN
 	GET DIAGNOSTICS _rowcount = row_count;
 
 	IF _rowcount = 0 THEN
-	   RAISE EXCEPTION '00203: Insert into mecb_config failed.';
+	   RAISE EXCEPTION '00205: Insert into mecb_config failed.';
 	END IF;
 
+/*
 	INSERT INTO mecb_config_audit (
 	       config_id,
 	       hist_id,
@@ -102,6 +116,7 @@ BEGIN
 	       _max_id,
 	       1,
 	       'Create');
+*/
 END; $$
 LANGUAGE plpgsql;
 
@@ -126,6 +141,15 @@ DECLARE
 	_rowcount		INTEGER:= 0;
 	_hist_id		INTEGER:= 0;
 BEGIN
+
+	IF parent_config IS NULL OR LENGTH(TRIM(parent_config)) = 0 THEN
+	   RAISE EXCEPTION '00211 Parent configuration must be non blank.';
+	END IF;
+
+	IF part_config IS NULL OR LENGTH(TRIM(part_config)) = 0 THEN
+	   RAISE EXCEPTION '00212 Configuration must be non blank.';
+	END IF;
+	
 	-- Ensure that the part configuration exists.
 	SELECT
 		config_id
@@ -136,8 +160,8 @@ BEGIN
 	WHERE
 		config		= part_config;
 
-	IF _c_id = 0 OR _c_id IS NULL THEN
-	   RAISE EXCEPTION '00211: This part''s config_id does not exist in '
+	IF _c_id IS NULL THEN
+	   RAISE EXCEPTION '00213: This configuration does not exist in '
 	   	 'mecb_config table.';
 	END IF;
 
@@ -154,8 +178,8 @@ BEGIN
 	WHERE
 		config		= parent_config;
 
-	IF _pc_id = 0 OR _pc_id IS NULL ThEN
-	   RAISE EXCEPTION '00212: This parent_config_id does not exist in '
+	IF _pc_id IS NULL ThEN
+	   RAISE EXCEPTION '00214: This parent_config_id does not exist in '
 	   	 'mecb_config table.';
 	END IF;
 
@@ -176,7 +200,7 @@ BEGIN
 	AND	c.config_type_id	= b.config_type_id;
 
      	IF _rowcount > 0 THEN
-     	   RAISE EXCEPTION '00213: Cannot have two configurations with the '
+     	   RAISE EXCEPTION '00215: Cannot have two configurations with the '
 	   	 'same type in the same tree.';
 	END IF;
 
@@ -195,7 +219,7 @@ BEGIN
 	AND	b.config	!= a.config;
 
 	IF _counter > 0 THEN
-	   RAISE EXCEPTION '00214: ''%'' is already a child of ''%''',
+	   RAISE EXCEPTION '00216: ''%'' is already a child of ''%''',
 	   	 part_config, parent_config;
 	END IF;
  
@@ -214,7 +238,7 @@ BEGIN
 	AND	b.config		!= a.config;
 
 	IF _counter > 0 THEN
-	   RAISE EXCEPTION '00215: ''%'' and ''%'' are in the same '
+	   RAISE EXCEPTION '00217: ''%'' and ''%'' are in the same '
 	   	 'configuration tree', parent_config, part_config;
 	END IF;
 
@@ -232,7 +256,7 @@ BEGIN
 	AND	a.part_id		!= a.parent_part_id;
 
 	IF _rowcount > 0 THEN
-	   RAISE EXCEPTION '00216: Cannot move a configuration with '
+	   RAISE EXCEPTION '00218: Cannot move a configuration with '
 	   	 'parts still attached to it.';
 	END IF;
 
@@ -255,10 +279,10 @@ BEGIN
 	GET DIAGNOSTICS _rowcount = row_count;
 
 	IF _rowcount = 0 THEN
-	   RAISE EXCEPTION '00217: Was not able to update the mecb_config '
+	   RAISE EXCEPTION '00219: Was not able to update the mecb_config '
 	   	 'table.';
 	END IF;
-
+/*
 	SELECT
 		COALESCE(MAX(hist_id) + 1,1)
 	INTO
@@ -276,7 +300,7 @@ BEGIN
 	       _c_id,
 	       _hist_id,
 	       'Update');
-
+*/
 END; $$
 LANGUAGE plpgsql;
 
@@ -379,7 +403,7 @@ DECLARE
 	_rowcount	BIGINT:= 0;
 BEGIN
 
-	IF c_name IS NULL THEN
+	IF c_name IS NULL OR LENGTH(TRIM(c_name)) = 0 THEN
 	   RAISE EXCEPTION '00401: Configuration name must be entered.';
 	END IF;
 
@@ -477,11 +501,12 @@ BEGIN
 	END IF;
 
 	-- Remove any history associated with this configuration.
+	/*
 	DELETE FROM
 	       mecb_config_audit
 	WHERE
 		config_id	= _c_id;
-		
+	*'/
 	DELETE FROM
 		mecb_config
 	WHERE
@@ -499,7 +524,6 @@ CREATE TRIGGER r_config_tree_del
 
 /*
 	api_config_rem
-
 	This API rmoves (not deletes) a configuration from its parent, then
 	goes down the tree and removes all other configurations also, thus
 	making every configuration in the removal chain a top-level
@@ -514,7 +538,7 @@ DECLARE
 	_hist_id	INTEGER:= 0;
 BEGIN
 
-	IF c_name IS NULL THEN
+	IF c_name IS NULL OR LENGTH(TRIM(c_name)) = 0 THEN
 	   RAISE EXCEPTION '00601: Configuration name cannot be blank.';
 	END IF;
 
@@ -537,16 +561,11 @@ BEGIN
 	INTO
 		_rowcount
 	FROM
-		mecb_part		a,
-		mecb_part_type		b,
-		mecb_config_type	c,
-		mecb_config		d
+		mecb_config	a,
+		mecb_part	b
 	WHERE
-		d.config_id		= _c_id
-	AND	c.config_type_id	= d.config_type_id
-	AND	b.part_type_id		= c.part_type_id
-	AND	a.part_type_id		= b.part_type_id
-	AND	b.part_type_id		IS NOT NULL;
+		a.config_id	= _c_id
+	AND	b.config_id	= a.config_id;
 
 	IF _rowcount > 0 THEN
 	   RAISE EXCEPTION '00603: Cannot remove configuration while a part '
@@ -589,7 +608,7 @@ BEGIN
 	IF _rowcount = 0 THEN
 	   RAISE EXCEPTION '00604: Configuration removal failed.';
 	END IF;
-
+/*
 	SELECT
 		COALESCE(MAX(hist_id) + 1,1)
 	INTO
@@ -607,7 +626,7 @@ BEGIN
 	       _c_id,
 	       _hist_id,
 	       'Remove');
-
+*/
 END; $$
 LANGUAGE plpgsql;
 
@@ -697,6 +716,8 @@ DECLARE
 	indent_jam	VARCHAR:= '';
 BEGIN
 
+--raise exception 'gothere2 %',indent_type;
+
 	-- We need the configuration name when we first start.
 	IF LENGTH(TRIM(c_name)) = 0  AND c_id IS NULL THEN
 	   RAISE EXCEPTION '03301: Configuratino name has to be non blank.';
@@ -718,6 +739,7 @@ BEGIN
 
 	   -- Drop is done so that we get a fresh start even if inside a
 	   -- transaction.
+	   
 	   DROP TABLE IF EXISTS mecb_config_tmp;
 	   CREATE TEMP TABLE IF NOT EXISTS mecb_config_tmp (
 	   	  tmp_id	BIGINT,
@@ -871,7 +893,7 @@ DECLARE
 	_rowcount	INTEGER:= 0;
 BEGIN
 
-	IF ct_name IS NULL THEN
+	IF ct_name IS NULL OR LENGTH(TRIM(ct_name)) = 0 THEN
 	   RAISE EXCEPTION '01001: Configuration type name must be entered.';
 	END IF;
 
@@ -886,7 +908,7 @@ BEGIN
 		config_type = ct_name;
 
 	IF _ct_id = 0 OR _ct_id IS NULL THEN
-	   RAISE EXCEPTION '01002: Invalid configuration type.';
+	   RAISE EXCEPTION '01002: Configuration type doesn''t exist.';
 	END IF;
 
 	-- Ensure that no configurations are using this configuration type.
@@ -1021,7 +1043,7 @@ BEGIN
 	FROM
 		mecb_part
 	WHERE
-		part_id		= _p_id;
+		part_type_id		= _pt_id;
 
 	IF _counter > 0 THEN
 	   RAISE EXCEPTION '00903: Cannot remove part type because at least '
@@ -1064,6 +1086,14 @@ DECLARE
 	_hist_id	INTEGER:= 0;
 BEGIN
 
+	IF p_name IS NULL OR LENGTH(TRIM(p_name)) = 0 THEN
+	   RAISE EXCEPTION '00801: Part name must be non-blank.';
+	END IF;
+
+	IF pt_name IS NULL OR LENGTH(TRIM(pt_name)) = 0 THEN
+	   RAISE EXCEPTION '00802: Part type name must be non-blank.';
+	END IF;
+
 	-- See if the part exists.
 	SELECT
 		COALESCE(part_id,0)
@@ -1075,7 +1105,7 @@ BEGIN
 		part		= p_name;
 
 	IF _p_id > 0 THEN
-	   RAISE EXCEPTION '00801: The selected part already exists.';
+	   RAISE EXCEPTION '00803: The selected part already exists.';
 	END IF;
 
 	-- Enaure that the part type exists.
@@ -1119,10 +1149,11 @@ BEGIN
 	GET DIAGNOSTICS _rowcount = row_count;
 
 	IF _rowcount = 0 THEN
-	   RAISE EXCEPTION '00803: The part ''%'' was not created.',
+	   RAISE EXCEPTION '00805: The part ''%'' was not created.',
 	   	 pt_name;
 	END IF;
 
+/*
 	-- Delete all part audit transactions > 7 days old.
 	DELETE FROM
 	       mecb_part_audit
@@ -1146,7 +1177,7 @@ BEGIN
 	       _p_id,
 	       _hist_id,
 	       'Insert');
-	
+	*/
 END; $$
 LANGUAGE plpgsql;
 
@@ -1154,12 +1185,9 @@ LANGUAGE plpgsql;
 	api_part_upd
 
 	The api for moving parts around.  It has two parms which are required
-	(pp_name and p_name) and an optional third parm which defaults to ''.
+	(pp_name and p_name).
 
-	The third parm is the name of an optional configuration to reconfigure
-	this part to.  In effect, this changes the part's configuratin tree.
-
-	The part can only be moved to a new part that belongs to a
+	The part can only be moved to a valid part that belongs to a
 	configuration.
 */
 DROP PROCEDURE IF EXISTS api_part_upd CASCADE;
@@ -1342,7 +1370,7 @@ BEGIN
 	IF _rowcount = 0 THEN
 	   RAISE EXCEPTION '01213: Was not able to update the part table.';
 	END IF;
-
+/*
 	SELECT
 		COALESCE(MAX(hist_id) + 1,1)
 	INTO
@@ -1360,7 +1388,7 @@ BEGIN
 	       _p_id,
 	       _hist_id,
 	       'Update');
-	
+	*/
 END; $$
 LANGUAGE plpgsql;
 
@@ -1534,7 +1562,7 @@ DECLARE
 	_hist_id	INTEGER:= 0;
 BEGIN
 
-	IF p_name IS NULL THEN
+	IF p_name IS NULL  OR LENGTH(TRIM(p_name)) = 0 THEN
 	   RAISE EXCEPTION '01401: Part name cannot be blank.';
 	END IF;
 
@@ -1584,7 +1612,7 @@ BEGIN
 	IF _rowcount = 0 THEN
 	   RAISE EXCEPTION '01403: Part removal failed.';
 	END IF;
-
+/*
 	SELECT
 		COALESCE(MAX(hist_id) + 1,1)
 	INTO
@@ -1602,6 +1630,7 @@ BEGIN
 	       _p_id,
 	       _hist_id,
 	       'Remove');
+*/
 END; $$
 LANGUAGE plpgsql;
 
@@ -1618,8 +1647,8 @@ DECLARE
 	_rowcount	BIGINT:= 0;
 BEGIN
 
-	IF p_name IS NULL THEN
-	   RAISE EXCEPTION '00401: Part name must be entered.';
+	IF p_name IS NULL OR LENGTH(TRIM(p_name)) = 0 THEN
+	   RAISE EXCEPTION '01501: Part name must be entered.';
 	END IF;
 
 	SELECT
@@ -1632,7 +1661,7 @@ BEGIN
 		part		= p_name;
 
 	IF _p_id IS NULL THEN
-	   RAISE EXCEPTION '01501: Invalid part name.';
+	   RAISE EXCEPTION '01502: Invalid part name.';
 	END IF;
 
 	-- Delete the first part in a tree, thus starting the recursive delete.
@@ -1644,15 +1673,15 @@ BEGIN
 	GET DIAGNOSTICS _rowcount = row_count;
 
 	IF _rowcount = 0 THEN
-	   RAISE EXCEPTION '01502: Deletion of the part failed.';
+	   RAISE EXCEPTION '01503: Deletion of the part failed.';
 	END IF;
-
+/*
 	-- Remove any history associated with this part.
 	DELETE FROM
 	       mecb_part_audit
 	WHERE
 		part_id	= _p_id;
-
+*/
 END; $$
 LANGUAGE plpgsql;
 
@@ -1670,7 +1699,7 @@ DECLARE
 	_pp_id		BIGINT:= old.parent_part_id;
 	_counter	INTEGER;
 BEGIN
-raise warning 'gothere % %',_p_id,_pp_id;
+
 	-- Delete part locations as without the parts we no longer need them.
 	DELETE FROM
 		mecb_part_loc
@@ -1990,7 +2019,7 @@ BEGIN
 	FROM
 		mecb_part
 	WHERE
-		part	= p_name;
+		LOWER(part)	= LOWER(p_name);
 
 	IF _p_id IS NULL THEN
 	   RAISE EXCEPTION '01703: The part does not exist in the mecb_part '
@@ -2004,7 +2033,7 @@ BEGIN
 	FROM
 		mecb_loc
 	WHERE
-		loc	= l_name;
+		LOWer(loc)	= LOWER(l_name);
 
 	IF _l_id IS NULL THEN
 	   RAISE EXCEPTION '01704: The location does not exist in the loc '
@@ -2033,7 +2062,7 @@ BEGIN
 	FROM
 		mecb_loc_type
 	WHERE
-		loc_type	= l_type;
+		LOWER(loc_type)	= LOWER(l_type);
 
 	IF _lt_id IS NULL THEN
 	   RAISE EXCEPTION '01706: Location type doesn''t exist.';
@@ -2090,7 +2119,7 @@ BEGIN
 	FROM
 		mecb_part
 	WHERE
-		part	= p_name;
+		LOWER(part)	= LOWER(p_name);
 
 	IF _p_id IS NULL THEN
 	   RAISE EXCEPTION '01803: Invalid part name.';
@@ -2104,7 +2133,7 @@ BEGIN
 	FROM
 		mecb_loc
 	WHERE
-		loc	= l_name;
+		LOWER(loc)	= LOWER(l_name);
 
 	IF _l_id IS NULL THEN
 	   RAISE EXCEPTION '01804: Invalid location name.';
@@ -2669,16 +2698,6 @@ BEGIN
 	   RAISE EXCEPTION '02705: The contact already exists for the location';
 	END IF;
 
-	-- Get the next sequence.
-	SELECT
-		COALESCE(MAX(contact_id) + 1,1)
-	INTO
-		_c_id
-	FROM
-		mecb_contact_loc
-	WHERE
-		loc_id		= _l_id;
-
 	INSERT INTO mecb_contact_loc (
 	       loc_id,
 	       contact_id)
@@ -2703,10 +2722,12 @@ LANGUAGE plpgsql;
 */
 DROP PROCEDURE IF EXISTS api_contact_loc_del;
 CREATE OR REPLACE PROCEDURE api_contact_loc_del (
-       c_name	  VARCHAR
+       c_name	  VARCHAR,
+       l_name	  VARCHAR DEFAULT ''
 ) AS $$
 DECLARE
 	_c_id		BIGINT:= 0;
+	_l_id		BIGINT:= 0;
 	_rowcount	INTEGER:= 0;
 BEGIN
 
@@ -2714,6 +2735,7 @@ BEGIN
 	   RAISE EXCEPTION '02801: The contact name must be non blank.';
 	END IF;
 
+	-- Get the contact id.
 	SELECT
 		contact_id
 	INTO
@@ -2723,10 +2745,29 @@ BEGIN
 	WHERE
 		contact		= c_name;
 
+	-- If the location was enteed, ensure it is valid.
+	IF LENGTH(TRIM(l_name)) > 0 THEN
+	   SELECT
+		loc_id
+	   INTO
+		_l_id
+	   FROM
+		mecb_loc
+	   WHERE
+		LOWER(loc)	= LOWER(l_name);
+
+	   IF _l_id IS NULL THEN
+	      RAISE EXCEPTION '02802: Invalid location name.';
+	   END IF;
+
+	END IF;
+	
 	IF _c_id IS NULL THEN
-	   RAISE EXCEPTION '02802: Invalid contact name.';
+	   RAISE EXCEPTION '02803: Invalid contact name.';
 	END IF;
 
+	-- If _l_id = 0 delete all contact ids for location, otherwise onel
+	-- delete a specific contact from a location.
 	SELECT
 		COUNT(*)
 	INTO
@@ -2734,22 +2775,29 @@ BEGIN
 	FROM
 		mecb_contact_loc
 	WHERE
-		contact_id	= _c_id;
+		(contact_id	= _c_id
+	AND	_l_id		= 0)
+	OR	(contact_id	= _c_id
+	AND	loc_id		= _l_id);
 
 	IF _rowcount = 0 THEN
-	   RAISE EXCEPTION '02803: Contact isn''t associated with any '
-	   	 'locations.';
+	   RAISE EXCEPTION '02804: Contact isn''t associated with '
+	   	 'location(s).';
 	END IF;
-	
+
+	-- Either delete only one contact id or all of them for a location.
 	DELETE FROM
 	       mecb_contact_loc
 	WHERE
-		contact_id	= _c_id;
+		(contact_id	= _c_id
+	AND	_l_id		= 0)
+	OR	(contact_id	= _c_id
+	AND	loc_id		= _l_id);
 
 	GET DIAGNOSTICS _rowcount = row_count;
 
 	IF _rowcount = 0 THEN
-	   RAISE EXCEPTION '02804: Wasn''t able to delete the record.';
+	   RAISE EXCEPTION '02805: Wasn''t able to delete the record.';
 	END IF;
 	
 END; $$

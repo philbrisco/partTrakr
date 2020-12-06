@@ -4,6 +4,34 @@ Legal:
 	This project is distributed under the Creative Commons license.
 
 Version:
+	1.2.3
+	12/05/2020	Phillip Brisco
+	Fixed a bug that would delete a part type even if a part was using it.
+
+	Added a check to handle blank input in:
+	      api_config_type_del
+	      api_config_ins
+	      api_config_upd
+	      api_config_del
+	      api_config_rem
+	      api_part_ins
+	      api_part_config_upd
+	      api_part_del
+
+	Fixed a bug in api_config_rem that was seeing parts connected to a
+	configuration when no parts were actually connected.
+
+	Fixed a bug in api_contact_loc_ins where it was monotonically
+	increasing the contact id when it should have been using the entered
+	contact id.
+	
+	Added the ability to either only disassociate a contact from one
+	location or disassociate a contact from all locations
+	(api_contact_loc_del).
+
+	Disabled the configuration and part audit features as they are not
+	very necessary to the project and they have a huge performance hit.
+	
 	1.2.1
 	12/4/2020	Phillip Brisco
 	Fixed a bug in api_part_config_upd that allowed a part that was not
@@ -17,6 +45,12 @@ Version:
 	deleted (This table can get huge fast in the normal course of use).
 	These records are not critical and just provide an audit trail of
 	updates made to the parts.
+
+	Fixed the search for the part name, location name and location type to
+	be case insensitive in api_part_loc_ins.
+
+	Fixed the search for the part and location names to be case insensitive
+	for api_part_loc_ins.
 	
 	1.2
 	12/2/2020	Phillip Brisco
@@ -129,15 +163,15 @@ Programming Interface:
 
 	api_part_config_upd
 
-	api_part_loc_ins
-	api_part_loc_del
-
 	api_loc_ins
 	api_loc_upd
 	api_loc_del
 
-	api_loc_addr_ins
-	api_loc_addr_upd
+	api_part_loc_ins
+	api_part_loc_del
+
+	api_addr_loc_ins
+	api_addr_loc_upd
 
 	api_contact_ins
 	api_contact_upd
@@ -237,24 +271,25 @@ What the core APIs do:
 	type has to already exist in the mecb_part_type table for the new
 	association to occur.
 
-	API_CONFIG_TYPE_del has 1 parameter, the configuration type to delete.
+	API_CONFIG_TYPE_DEL has 1 parameter, the configuration type to delete.
 	The procedure ensures that the type is deleted only if there are no
 	configurations using it.
 
-	API_CONFIG_INS has 2 parameters, the name of the configuration which is
+	API_CONFIG_INS has 3 parameters, the name of the configuration which is
 	to be associated with a configuration type created with the
-	api_config_type_ins procedure.
+	api_config_type_ins procedure, the configuration type and an optional
+	number of configuration slots.  The slot is tell how many parts can be
+	connected to the same tree using this configuration.  The default is 1.
 
-	API_CONFIG_UPD has 3 parameters, the name of a new parent, the name
-	of the child and an option number of slots.  The first two must already
-	exist.  The optional number of slots (the default is 1) tells how many
-	parts of this configuration are allowed on this tree at this level.
-	This will make the child the child of the parent as long as it is valid
-	to do so (configuration can't be children of each other and
-	configurations with the same types cannot be in the same direct tree).
-	Associating a configuration with itself, removes it from the current
-	configuration tree (if it has a parent) and makes it a top level part.
-	No configuration can be moved once parts are attached to it.
+	API_CONFIG_UPD has 2 parameters, the name of a new parent and the name
+	of the child.  They both must already exist.  This will make the child
+	the child of the parent as long as it is valid to do so (configuration
+	can't be children of each other and configurations with the same types
+	cannot be in the same direct tree).  Associating a configuration with
+	itself, removes it from the current configuration tree (if it has a
+	parent) and makes it a top level part.  No configuration can be moved
+	once parts are attached to it (in this case, all parts have to be
+	removed first).
 
 	API_CONFIG_REM has one parameter, the configuration.  This will remove
 	a configuration and all of its progeny from a tree, thus making each
@@ -280,12 +315,10 @@ What the core APIs do:
 	multiple parts are the same type, it is probably best to make them all
 	of the same configuration.
 
-	API_PART_UPD has 3 paramters, the name of the new parent, the name
-	of the child to be attached to the parent and an optional configuration
-	name for the child.  Both parts must already exist and be configured.
-	The parts are attached to each other via the rules set down in their
-	configurations.  This can be changed, by giving a different, valid,
-	configuration name to the child so that it can change its configuration.
+	API_PART_UPD has 2 paramters, the name of the new parent and the name
+	of the child to be attached to the parent.  Both parts must already
+	exist and be configured.  The parts are attached to each other via the ]
+	rules set down in their configurations.
 
 	API_PART_REM has 1 parameter, the part name.  It removes the part and
 	its progeny from each other, making each part a top-level part.  It
@@ -322,7 +355,7 @@ Location APIs:
 	location can only be deleted if parts are not using it.
 
 	API_PART_LOC_INS  has 3 parameters, the existing name of a part, the
-	existing name of a part and a valid location type.
+	existing name of a location and a valid location type.
 
 	API_PART_LOC_DEL has 2 parameters, the name of an existing part and
 	the name of an existing location that it is to be disassociated from.
@@ -343,7 +376,8 @@ Contact APIs:
 	api_contact_del		    Deletes an existing contact
 
 	api_contact_loc_ins	    Associates a contact with a location
-	api_contact_loc_del	    Disassociates a contact from a location
+	api_contact_loc_del	    Disassociates a contact from either a
+				    location or all locations.
 
 	api_contact_det_ins	    Inserts contact detail info
 	api_contact_det_upd	    Edits contact detail info
@@ -362,8 +396,10 @@ Contact APIs:
 	API_CONTACT_LOC_INS has 2 parameters, the contact name and the location
 	name.  This associates an existing contact with an existing location.
 
-	API_CONTACT_LOC_DEL has 1 parameter, the contact name and disassociates
-	the contact from the location.
+	API_CONTACT_LOC_DEL has 2 parameters, the contact name and an optional
+	location. Entering a location will disassociate the contact from that
+	location, otherwise the contact will be disassociated from all
+	locations.
 
 	API_CONTACT_DET_INS has 3 parameters, an existing contact name, an
 	existing contact type and the contact detail (phone, ext, email, etc.)
