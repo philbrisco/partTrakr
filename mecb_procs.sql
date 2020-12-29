@@ -219,7 +219,7 @@ BEGIN
 	AND	b.config	!= a.config;
 
 	IF _counter > 0 THEN
-	   RAISE EXCEPTION '00216: ''%'' is already a child of ''%''',
+	   RAISE EXCEPTION '00216: ''%'' is already a child of ''%''.',
 	   	 part_config, parent_config;
 	END IF;
  
@@ -239,7 +239,7 @@ BEGIN
 
 	IF _counter > 0 THEN
 	   RAISE EXCEPTION '00217: ''%'' and ''%'' are in the same '
-	   	 'configuration tree', parent_config, part_config;
+	   	 'configuration tree.', parent_config, part_config;
 	END IF;
 
 	-- Ensure that no parts are attached to the configuration.
@@ -506,7 +506,8 @@ BEGIN
 	       mecb_config_audit
 	WHERE
 		config_id	= _c_id;
-	*'/
+	*/
+
 	DELETE FROM
 		mecb_config
 	WHERE
@@ -716,8 +717,6 @@ DECLARE
 	indent_jam	VARCHAR:= '';
 BEGIN
 
---raise exception 'gothere2 %',indent_type;
-
 	-- We need the configuration name when we first start.
 	IF LENGTH(TRIM(c_name)) = 0  AND c_id IS NULL THEN
 	   RAISE EXCEPTION '03301: Configuratino name has to be non blank.';
@@ -734,17 +733,13 @@ BEGIN
 		config	= c_name;
 
 	   IF c_id IS NULL THEN
-	      RAISE EXCEPTION '03302: Invalid configuration name';
+	      RAISE EXCEPTION '03302: Invalid configuration name.';
 	   END IF;
 
 	   -- Drop is done so that we get a fresh start even if inside a
 	   -- transaction.
 	   
-	   DROP TABLE IF EXISTS mecb_config_tmp;
-	   CREATE TEMP TABLE IF NOT EXISTS mecb_config_tmp (
-	   	  tmp_id	BIGINT,
-		  tmp_name	VARCHAR
-	   ) ON COMMIT DROP;
+	   DELETE FROM  mecb_config_tmp;
 
 	   ret_path = c_name;
 	END IF;
@@ -836,7 +831,7 @@ BEGIN
 
 	IF _ct_id > 0 THEN
 	   RAISE EXCEPTION '00802: The selected configuration type already '
-	   	 'exists';
+	   	 'exists.';
 	END IF;
 
 	-- See if the part type exists.
@@ -853,6 +848,22 @@ BEGIN
 	   RAISE EXCEPTION '00803: The selected part type does not exist.';
 	END IF;
 
+	SELECT
+		COUNT(*)
+	INTO
+		_rowcount
+	FROM
+		mecb_part_type		a,
+		mecb_config_type	b
+	WHERE
+		a.part_type_id		= _pt_id
+	AND	b.part_type_id		= a.part_type_id;
+
+	IF _rowcount > 0 THEN
+	   RAISE EXCEPTION '00804: The part type is already being used by a '
+	   	 ' configuration type.';
+	END IF;
+	
 	-- Get the next sequence number for the config type.
 	SELECT
 		COALESCE(MAX(config_type_id) + 1,1)
@@ -1745,7 +1756,8 @@ CREATE TRIGGER r_part_tree_del
 	Everythinng else is used by the procedure.  The second parameter is an
 	optional one, since indented output is the default.
 
-	This is designed to work within a transaction.
+	This cannot be assigned within the transaction since the sql connection
+	package being used doesn't support dirty reads.
 */
 DROP PROCEDURE IF EXISTS api_part_list;
 CREATE OR REPLACE PROCEDURE api_part_list (
@@ -1778,17 +1790,19 @@ BEGIN
 		part	= p_name;
 
 	   IF p_id IS NULL THEN
-	      RAISE EXCEPTION '03202: Invalid part name';
+	      RAISE EXCEPTION '03202: Invalid part name.';
 	   END IF;
 
 	   -- Drop is done so that we get a fresh start even if inside a
 	   -- transaction.
-	   DROP TABLE IF EXISTS mecb_part_tmp;
-	   CREATE TEMP TABLE IF NOT EXISTS mecb_part_tmp (
+	   DELETE FROM
+	   	  mecb_part_tmp;
+	   /*
+	   CREATE TABLE IF NOT EXISTS mecb_part_tmp (
 	   	  tmp_id	BIGINT,
 		  tmp_name	VARCHAR
-	   ) ON COMMIT DROP;
-
+	   );
+*/
 	   ret_path = p_name;		  
 	END IF;
 
@@ -2011,7 +2025,6 @@ BEGIN
 	IF l_name IS NULL OR LENGTH(TRIM(l_name)) = 0 THEN
 	   RAISE EXCEPTION '01702: The location name must be non blank.';
 	END IF;
-
 	SELECT
 		part_id
 	INTO
@@ -2033,26 +2046,11 @@ BEGIN
 	FROM
 		mecb_loc
 	WHERE
-		LOWer(loc)	= LOWER(l_name);
+		LOWER(loc)	= LOWER(l_name);
 
 	IF _l_id IS NULL THEN
 	   RAISE EXCEPTION '01704: The location does not exist in the loc '
 	   	 'table.';
-	END IF;
-
-	SELECT
-		COUNT(*)
-	INTO
-		_rowcount
-	FROM
-		mecb_part_loc
-	WHERE
-		loc_id		= _l_id
-	AND	part_id		= _p_id;
-
-	IF _rowcount > 0 THEN
-	   RAISE EXCEPTION '01705: This location already exists in the part '
-	   	 'location table.';
 	END IF;
 
 	SELECT
@@ -2065,7 +2063,22 @@ BEGIN
 		LOWER(loc_type)	= LOWER(l_type);
 
 	IF _lt_id IS NULL THEN
-	   RAISE EXCEPTION '01706: Location type doesn''t exist.';
+	   RAISE EXCEPTION '01705: Location type doesn''t exist.';
+	END IF;
+
+	SELECT
+		COUNT(*)
+	INTO
+		_rowcount
+	FROM
+		mecb_part_loc
+	WHERE
+		loc_type_id	= _lt_id
+	AND	part_id		= _p_id;
+
+	IF _rowcount > 0 THEN
+	   RAISE EXCEPTION '01706: This part already has a location for this '
+	   	 'type.';
 	END IF;
 
 	INSERT INTO mecb_part_loc (
@@ -2395,11 +2408,12 @@ LANGUAGE plpgsql;
 /*
 	api_addr_loc_del
 
-	Deletes all addresses for a location.
+	Deletes addresses for a location.
 */
 DROP PROCEDURE IF EXISTS api_addr_loc_del CASCADE;
 CREATE OR REPLACE PROCEDURE api_addr_loc_del (
-       l_name	  VARCHAR
+       l_name	  VARCHAR,
+       l_addr	  VARCHAR
 ) AS $$
 DECLARE
 	_l_id		BIGINT:= 0;
@@ -2423,10 +2437,18 @@ BEGIN
 	   RAISE EXCEPTION '02302: Invalid location name.';
 	END IF;
 
-	DELETE FROM
-	       mecb_addr_loc
-	WHERE
-		loc_id	= _l_id;
+	IF LENGTH(l_addr) > 0  THEN
+		DELETE FROM
+		       mecb_addr_loc
+		WHERE
+			loc_id		= _l_id
+	   AND	LOWER(address)	= LOWER(l_addr);
+	ELSE	
+		DELETE FROM
+	       	       mecb_addr_loc
+		WHERE
+			loc_id	= _l_id;
+	END IF;
 
 	GET DIAGNOSTICS _rowcount = row_count;
 
@@ -2637,7 +2659,7 @@ LANGUAGE plpgsql;
 /*
 	api_contact_loc_ins
 
-	Associate a contact with a part.
+	Associate a contact with a location.
 */
 DROP PROCEDURE IF EXISTS api_contact_loc_ins CASCADE;
 CREATE OR REPLACE PROCEDURE api_contact_loc_ins (
@@ -2835,7 +2857,7 @@ BEGIN
 	END IF;
 
 	IF det_stuff IS NULL OR LENGTH(TRIM(det_stuff)) = 0 THEN
-	   RAISE EXCEPTION '02903: Details must be non-blank';
+	   RAISE EXCEPTION '02903: Details must be non blank.';
 	END IF;
 	
 	SELECT
@@ -3158,11 +3180,6 @@ BEGIN
 	   	 'non blank.';
 	END IF;
 
-	IF new_type IS NULL OR LENGTH(TRIM(new_type)) = 0 THEN
-	   RAISE EXCEPTION '03502: The new maintenance type has to be non '
-	   	 'blank.';
-	END IF;
-
 	-- Ensure the type to be changed exists.
 	SELECT
 		maint_type_id
@@ -3264,7 +3281,7 @@ BEGIN
 	GET DIAGNOSTICS _rowcount = row_count;
 
 	IF _rowcount = 0 THEN
-	   RAISE EXCEPTION '03604 Wasn''t able to delete the maintenance type';
+	   RAISE EXCEPTION '03604 Wasn''t able to delete the maintenance type.';
 	END IF;
 	
 END; $$
@@ -3364,7 +3381,7 @@ BEGIN
 		_e_date;
 
 	IF _e_date IS NULL THEN
-	   RAISE EXCEPTION '03709: Invalid end date';
+	   RAISE EXCEPTION '03709: Invalid end date.';
 	END IF;
 
 	INSERT INTO mecb_sched_maint (
@@ -3409,7 +3426,7 @@ BEGIN
 	END IF;
 
 	IF m_type IS NULL OR LENGTH(TRIM(m_type)) = 0 THEN
-	   RAISE EXCEPTION '03802: Maintenance type must be non blank';
+	   RAISE EXCEPTION '03802: Maintenance type must be non blank.';
 	END IF;
 
 	SELECT
@@ -3469,7 +3486,7 @@ CREATE OR REPLACE PROCEDURE api_maint_hist_ins (
 ) AS $$
 DECLARE
 	_p_id		BIGINT:= 0;
-	_h_id		Bigint:= 0;
+	_h_id		BIGINT:= 0;
 	_act_date	DATE;
 	_rowcount	INTEGER:= 0;
 BEGIN
@@ -3548,7 +3565,7 @@ BEGIN
 	       _h_id,
 	       _act_date,
 	       mt_name,
-	       m_stuff);
+	       _act_date || ' ' || mt_name || ': ' || m_stuff);
 
 	GET DIAGNOSTICS _rowcount = row_count;
 

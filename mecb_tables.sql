@@ -70,34 +70,6 @@ DROP INDEX IF EXISTS mecb_part_idx\g\qecho '        mecb_part_idx'
 CREATE UNIQUE INDEX mecb_part_idx ON mecb_part (part_id)\g
 \qecho '        mecb_part_idx'
 
--- Keeps track of insert, update and removal info on the configuration.
-DROP TABLE IF EXISTS mecb_config_audit\g\qecho '       mecb_config_audit'
-
-CREATE TABLE IF NOT EXISTS mecb_config_audit (
-     config_id	     		 BIGINT,
-     hist_id			 INTEGER,
-     action			 VARCHAR,
-     transaction_date		 DATE NOT NULL DEFAULT current_date,
-     transaction_time		 TIME NOT NULL DEFAULT current_time,
-     cur_user			 NAME NOT NULL DEFAULT current_user,
-     sess_user			  NAME NOT NULL DEFAULT session_user,
-     PRIMARY KEY		 (config_id, hist_id)
-);\qecho '        mecb_config_audit'
-
--- Keeps track of insert, removal and update info on the parts.
-DROP TABLE IF EXISTS mecb_part_audit\g\qecho '       mecb_config_audit'
-
-CREATE TABLE IF NOT EXISTS mecb_part_audit (
-     part_id	     		 BIGINT,
-     hist_id			 INTEGER,
-     action			 VARCHAR,
-     transaction_date		 DATE DEFAULT current_date,
-     transaction_time		 TIME DEFAULT current_time,
-     cur_user			 NAME DEFAULT current_user,
-     sess_user			 NAME DEFAULT session_user,
-     PRIMARY KEY		 (part_id, hist_id)
-);\qecho '        mecb_partaudit'
-
 -- Location data.
 DROP TABLE IF EXISTS mecb_loc\g\qecho '        mecb_loc'
 
@@ -198,10 +170,22 @@ CREATE TABLE IF NOT EXISTS mecb_maint_hist (
 
 /******************** Utility tables ***********************/
 
+DROP TABLE IF EXISTS mecb_part_tmp;
+CREATE UNLOGGED TABLE IF NOT EXISTS mecb_part_tmp (
+       tmp_id	BIGINT,
+       tmp_name	VARCHAR
+);
+
+DROP TABLE IF EXISTS mecb_config_tmp;
+CREATE UNLOGGED TABLE IF NOT EXISTS mecb_config_tmp (
+       tmp_id	BIGINT,
+       tmp_name	VARCHAR
+);
+
 -- Location type
 DROP TABLE IF EXISTS mecb_loc_type\g\qecho '        mecb_loc_type'
 
-CREATE TABLE IF NOT EXISTS mecb_loc_type (
+CREATE UNLOGGED TABLE IF NOT EXISTS mecb_loc_type (
        loc_type	     VARCHAR UNIQUE NOT NULL,
        loc_type_id   BIGINT UNIQUE NOT NULL,
        description	     VARCHAR
