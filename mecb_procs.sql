@@ -815,7 +815,7 @@ DECLARE
 	_rowcount	INTEGER:= 0;
 BEGIN
 
-	IF ct_name IS NULL THEN
+	IF LENGTH(TRIM(ct_name)) = 0 THEN
 	   RAISE EXCEPTION '00801: The Configuration type must be entered.';
 	END IF;
 
@@ -1061,6 +1061,21 @@ BEGIN
 	   	 'one part is connected to it.';
 	END IF;
 
+	/* Ensure that no configuration types are using the part type.n*/
+	SELECT
+		COUNT(*)
+	INTO
+		_counter
+	FROM
+		mecb_config_type
+	WHERE
+		part_type_id	= _pt_id;
+
+	IF _counter > 0 THEN
+	   RAISE EXCEPTION '00904: Cannot remove part type because it is being '
+	   	 'used by a configuration type.';
+	END IF;
+
 	-- Delete the part type.
 	DELETE FROM
 	       mecb_part_type
@@ -1070,7 +1085,7 @@ BEGIN
 	GET DIAGNOSTICS _rowcount = row_count;
 
 	IF _rowcount = 0 THEN
-	   RAISE EXCEPTION '00904; Part type ''%'' not removed.',pt_name;
+	   RAISE EXCEPTION '00905; Part type ''%'' not removed.',pt_name;
 	END IF;
 
 END; $$
@@ -1113,7 +1128,7 @@ BEGIN
 	FROM
 		mecb_part
 	WHERE
-		part		= p_name;
+		LOWER(part)		= LOWER(p_name);
 
 	IF _p_id > 0 THEN
 	   RAISE EXCEPTION '00803: The selected part already exists.';
@@ -1127,7 +1142,7 @@ BEGIN
 	FROM
 		mecb_part_type
 	WHERE
-		part_type	= pt_name;
+		LOWER(part_type)	= LOWER(pt_name);
 
 	IF _pt_id = 0 OR _pt_id IS NULL THEN
 	   RAISE EXCEPTION '00804: The part type does not exist for the '
@@ -1216,6 +1231,7 @@ DECLARE
 	_p_name		VARCHAR;
 	_pp_name	VARCHAR;
 	_num_slots	INTEGER:= 0;
+	_num_conf_slots	INTEGER:= 0;
 	_slots_used	INTEGER:= 0;
 	_hist_id	INTEGER:= 0;
 BEGIN
@@ -1351,6 +1367,27 @@ BEGIN
 		a.part_id	= _p_id
 	AND	b.config_id	= a.config_id;
 
+	-- Get the number of configuration slots available.
+	SELECT
+		count(*)
+	INTO
+		_num_conf_slots
+	FROM
+		mecb_part	a,
+		mecb_config	b,
+		mecb_config	c
+	WHERE
+		a.part_id		= _p_id
+	AND	b.config_id		= a.config_id
+	AND	c.parent_config_id	= b.parent_config_id
+	AND	b.parent_config_id	!= b.config_id
+	AND	c.parent_config_id	!= c.config_id;
+
+	-- If there are more config slots than part slots, we need to know.
+	IF _num_conf_slots > _num_slots THEN
+	   _num_slots = _num_conf_slots;
+	END IF;
+
 	-- Get the number of slots used.
 	SELECT
 		COUNT(*)
@@ -1364,7 +1401,7 @@ BEGIN
 
 	IF _num_slots - _slots_used <= 0 AND _p_id != _pp_id THEN
 	   RAISE EXCEPTION '01212: This slot is already filled by another '
-	   	 'part.';
+	   	 'part % % % %.', _num_slots, _slots_used, _num_conf_slots, _c_id;
 	END IF;
 
 	-- Set the initial value which starts the recursive update cycle.
@@ -1916,16 +1953,25 @@ BEGIN
 	   RAISE EXCEPTION '01605: All children of this part need to be '
 	   	 'detached before reconfig.';
 	END IF;
-	
-	SELECT
+
+	/*
+		If a '0 is passed in, it means a part is being disassociated
+		from it's configuration.
+	*/
+	IF lower(c_name) = 'nil' THEN
+	   _c_id = 0;
+	ELSE
+	   SELECT
 		config_id
-	INTO
+	   INTO
 		_c_id
-	FROM
+	   FROM
 		mecb_config
-	WHERE
+	   WHERE
 		config	= c_name;
 
+	END IF;
+	
 	IF _c_id IS NULL THEN
 	   RAISE EXCEPTION '01606: Invalid configuration name.';
 	END IF;
@@ -1956,7 +2002,7 @@ BEGIN
 	AND	h.config_type_id	= g.config_type_id
 	AND	h.parent_config_id	= e.config_id;
 
-	IF _rowcount = 0 THEN
+	IF _rowcount = 0 AND _c_id != 0 THEN
 
 	   IF _p_id = _pp_id THEN
 		SELECT
@@ -2108,19 +2154,21 @@ LANGUAGE plpgsql;
 DROP PROCEDURE IF EXISTS api_part_loc_del CASCADE;
 CREATE OR REPLACE PROCEDURE api_part_loc_del (
        p_name	  VARCHAR,
-       l_name	  VARCHAR
+       l_name	  VARCHAR,
+       lt_name	  VARCHAR
 ) AS $$
 DECLARE
 	_p_id		BIGINT:= 0;
 	_l_id		BIGINT:= 0;
+	_lt_id		BIGINT:= 0;
 	_rowcount	INTEGER:= 0;
 BEGIN
 
-	IF p_name IS NULL OR LENGTH(TRIM(p_name)) = 0 THEN
+IF LENGTH(TRIM(p_name)) = 0 THEN
 	   RAISE EXCEPTION '01801: The part name must be non blank.';
 	END IF;
 
-	IF l_name IS NULL OR LENGTH(TRIM(l_name)) = 0 THEN
+	IF LENGTH(TRIM(l_name)) = 0 THEN
 	   RAISE EXCEPTION '01802: The location name must be non blank.';
 	END IF;
 
@@ -2152,16 +2200,39 @@ BEGIN
 	   RAISE EXCEPTION '01804: Invalid location name.';
 	END IF;
 
-	DELETE FROM
-	       mecb_part_loc
-	WHERE
-		loc_id		= _l_id
-	AND	part_id		= _p_id;
+	IF LENGTH(TRIM(lt_name)) > 0 THEN
+	   SELECT
+		loc_type_id
+	   INTO
+		_lt_id
+	   FROM
+		mecb_loc_type
+	   WHERE
+		LOWER(loc_type)	= LOWER(lt_name);
 
+	   IF _lt_id IS NULL THEN
+	      RAISE EXCEPTION '01805: Invalid location type name.';
+	   END IF;
+
+	   DELETE FROM
+	       mecb_part_loc
+	   WHERE
+		loc_id		= _l_id
+	   AND	part_id		= _p_id
+	   AND	loc_type_id	= _lt_id;
+
+	ELSE
+	   DELETE FROM
+	       mecb_part_loc
+	   WHERE
+		loc_id		= _l_id
+	   AND	part_id		= _p_id;
+	END IF;
+	
 	GET DIAGNOSTICS _rowcount = row_count;
 
 	IF _rowcount = 0 THEN
-	   RAISE EXCEPTION '01805: Location for part not found.';
+	   RAISE EXCEPTION '01806: Location for part not found.';
 	END IF;
 	
 END; $$
@@ -3578,3 +3649,314 @@ END; $$
 LANGUAGE plpgsql;
 
 /************************ End mecb_maint_hist fiddly bits ****************/
+/************************ Begin mecb_security_init fiddly bits **************/
+
+/*
+	Insert or update the on privilege.
+*/
+DROP PROCEDURE IF EXISTS api_security_init_ins;
+CREATE OR REPLACE PROCEDURE api_security_init_ins (
+       user_name  VARCHAR,
+       isOn	  BOOL DEFAULT 'f',
+       userIsOn	  BOOL DEFAULT 'f'
+) AS $$
+DECLARE
+	_rowcount	BIGINT;
+BEGIN
+      SELECT
+		COUNT(*)
+	INTO
+		_rowcount
+	FROM
+		mecb_security_init
+	WHERE
+		LOWER(name)	= 'general';
+
+	IF _rowcount = 0 THEN
+	   INSERT INTO mecb_security_init (
+	   	  name,
+		  is_on)
+	   VALUES ('general',
+	   	  isOn);
+	ELSE
+	   UPDATE
+		mecb_security_init
+	  SET
+		is_on	= isOn
+	  WHERE
+		LOWER(name)	= 'general';
+	END IF;
+
+	IF LENGTH(TRIM(user_name)) > 0 THEN
+	   SELECT
+		COUNT(*)
+	   INTO
+		_rowcount
+	   FROM
+		pg_catalog.pg_user
+	   WHERE
+		LOWER(usename)	= LOWER(user_name);
+
+	   IF _rowcount = 0 THEN
+	      RAISE EXCEPTION '04001: Invalid user name.';
+	   END IF;
+
+	   UPDATE
+		mecb_security_init
+	   SET
+		is_on	= userIsOn
+	   WHERE
+		LOWER(name)	= LOWER(user_name);
+
+          GET DIAGNOSTICS _rowcount = row_count;
+
+	  IF _rowcount = 0 THEN
+	     INSERT INTO mecb_security_init (
+	     	    name,
+		    is_on)
+	     VALUES (user_name,
+	     	    userIsOn);
+	  END IF;
+	  
+	END IF;
+
+        GET DIAGNOSTICS _rowcount = row_count;
+
+	IF _rowcount = 0 THEN
+	   RAISE EXCEPTION '04002: Unable to create the privileges for user.';
+	END IF;
+END; $$
+LANGUAGE plpgsql;
+
+/************************ End mecb_security_init fiddly bits **************/
+/************************ Begin mecb_security_privs fiddly bits **************/
+
+/*
+	Insert privileges.
+*/
+DROP PROCEDURE IF EXISTS api_security_privs_ins;
+CREATE OR REPLACE PROCEDURE api_security_privs_ins (
+       user_name  VARCHAR,
+       procs	  VARCHAR,
+       privs	  VARCHAR
+) AS $$
+DECLARE
+	_rowcount	BIGINT;
+BEGIN
+
+	IF LENGTH(TRIM(user_name)) = 0 THEN
+	   RAISE EXCEPTION '04101: User name cannot be blank.';
+	END IF;
+
+	IF LENGTH(TRIM(procs)) = 0 THEN
+	   RAISE EXCEPTION '04102: Procedure name cannot be blank.';
+	END IF;
+
+	SELECT
+		COUNT(*)
+	INTO
+		_rowcount
+	FROM
+		pg_catalog.pg_user
+	WHERE
+		LOWER(usename)	= LOWER(user_name);
+
+	IF _rowcount = 0 THEN
+	   RAISE EXCEPTION '04103: Invalid user name.';
+	END IF;
+
+	SELECT
+		COUNT(*)
+	INTO
+		_rowcount
+	FROM
+		mecb_security_procs
+	WHERE
+		LOWER(proc)	= LOWER(procs);
+
+	IF _rowcount = 0 THEN
+	   RAISE EXCEPTION '04104: Invalid procedure name.';
+	END IF;
+
+	SELECT
+		COUNT(*)
+	INTO
+		_rowcount
+	FROM
+		mecb_security_privs
+	WHERE
+		LOWER(name)	= LOWER(user_name)
+	AND	LOWER(proc)	= LOWER(procs);
+
+	IF _rowcount > 0 THEN
+	   RAISE EXCEPTION '04105: Privilege already exists.';
+	END IF;
+
+	IF LENGTH(TRIM(privs)) = 0 THEn
+	   privs = 'None';
+	END IF;
+
+	INSERT INTO mecb_security_privs (
+	       name,
+	       proc,
+	       priv)
+	VALUES (
+	       user_name,
+	       procs,
+	       privs);
+
+	GET DIAGNOSTICS _rowcount = row_count;
+
+	IF _rowcount = 0 THEN
+	   RAISE EXCEPTION '04106: Wasn''t able to update privileges.';
+	END IF;
+
+END; $$
+LANGUAGE plpgsql;
+
+/*
+	Update privileges.
+*/
+DROP PROCEDURE IF EXISTS api_security_privs_upd;
+CREATE OR REPLACE PROCEDURE api_security_privs_upd (
+       user_name  VARCHAR,
+       procs	  VARCHAR,
+       privs	  VARCHAR
+) AS $$
+DECLARE
+	_rowcount	BIGINT;
+BEGIN
+
+	IF LENGTH(TRIM(user_name)) = 0 THEN
+	   RAISE EXCEPTION '04201: User name cannot be blank.';
+	END IF;
+
+	IF LENGTH(TRIM(procs)) = 0 THEN
+	   RAISE EXCEPTION '04202: Procedure name cannot be blank.';
+	END IF;
+
+	SELECT
+		COUNT(*)
+	INTO
+		_rowcount
+	FROM
+		pg_catalog.pg_user
+	WHERE
+		LOWER(usename)	= LOWER(user_name);
+
+	IF _rowcount = 0 THEN
+	   RAISE EXCEPTION '04203: Invalid user name.';
+	END IF;
+
+	SELECT
+		COUNT(*)
+	INTO
+		_rowcount
+	FROM
+		mecb_security_procs
+	WHERE
+		LOWER(proc)	= LOWER(procs);
+
+	IF _rowcount = 0 THEN
+	   RAISE EXCEPTION '04204: Invalid procedure name.';
+	END IF;
+
+	SELECT
+		COUNT(*)
+	INTO
+		_rowcount
+	FROM
+		mecb_security_privs
+	WHERE
+		LOWER(name)	= LOWER(user_name)
+	AND	LOWER(proc)	= LOWER(procs);
+
+	IF LENGTH(TRIM(privs)) = 0 THEN
+	   privs = 'None';
+	END IF;
+
+	IF _rowcount = 0 THEN
+	   INSERT INTO mecb_security_privs (
+	   	  name,
+		  proc,
+		  priv)
+	   VALUES (LOWER(user_name),
+	   	  LOWER(procs),
+		  privs);
+	ELSE
+	   UPDATE
+		mecb_security_privs
+	   SET
+		priv	= privs
+	   WHERE
+		name	= user_name
+	   AND	proc	= procs;
+	END IF;
+	
+	GET DIAGNOSTICS _rowcount = row_count;
+
+	IF _rowcount = 0 THEN
+	   RAISE EXCEPTION '04206: Wasn''t able to update privileges.';
+	END IF;
+
+END; $$
+LANGUAGE plpgsql;
+
+/*
+	Delete privileges.
+*/
+DROP PROCEDURE IF EXISTS api_security_privs_del;
+CREATE OR REPLACE PROCEDURE api_security_privs_del (
+       user_name  VARCHAR,
+       procs	  VARCHAR,
+       privs	  VARCHAR
+) AS $$
+DECLARE
+	_rowcount	BIGINT;
+BEGIN
+
+	IF LENGTH(TRIM(user_name)) = 0 THEN
+	   RAISE EXCEPTION '04301: User name cannot be blank.';
+	END IF;
+
+	SELECT
+		COUNT(*)
+	INTO
+		_rowcount
+	FROM
+		mecb_security_privs
+	WHERE
+		LOWER(name)	= LOWER(user_name);
+
+	IF LENGTH(TRIM(procs)) = 0 AND _rowcount > 0 THEN
+	   DELETE FROM
+	   	  mecb_security_privs
+	   WHERE
+		LOWER(name)	= LOWER(user_name);
+
+	   GET DIAGNOSTICS _rowcount = row_count;
+
+	   IF _rowcount = 0 THEN
+	      RAISE EXCEPTION '04302: Couldn''t delete privileges.';
+    	   END IF;
+
+	ELSEIF _rowcount > 0 THEN
+	   DELETE FROM
+	       mecb_security_privs
+	   WHERE
+		LOWER(name)	= LOWER(user_name)
+	   AND	LOWER(proc)	= LOWER(procs);
+
+	   GET DIAGNOSTICS _rowcount = row_count;
+
+	   IF _rowcount = 0 THEN
+	      RAISE EXCEPTION '04305: Wasn''t able to delete privileges.';
+	   END IF;
+ 
+	END IF;
+	
+END; $$
+LANGUAGE plpgsql;
+
+/************************ End mecb_security_privs fiddly bits **************/
+

@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS mecb_part_loc (
        part_id		   BIGINT,
        loc_id	    	   BIGINT,
        loc_type_id	   BIGINT,
-       PRIMARY KEY	   (part_id, loc_id)
+       PRIMARY KEY	   (part_id, loc_id, loc_type_id)
 );\qecho '        mecb_part_loc'
 
 -- Address
@@ -274,3 +274,50 @@ INSERT INTO mecb_contact_det_type (
 VALUES (7,
        'bemail',
        'Business email');
+
+/************ Security Section ***********/
+
+-- Security on
+DROP TABLE IF EXISTS mecb_security_init;
+CREATE TABLE IF NOT EXISTS mecb_security_init(
+     name    VARCHAR,
+     is_on   BOOL
+);
+
+INSERT INTO mecb_security_init (
+       name,
+       is_on)
+VALUES ('general',
+       false);
+
+DROP TABLE IF EXISTS mecb_security_privs;
+CREATE TABLE IF NOT EXISTS mecb_security_privs (
+     name  	     VARCHAR,
+     proc	     VARCHAR,
+     priv	     VARCHAR,
+     PRIMARY KEY     (name, proc));
+
+DROP TABLE IF EXISTS mecb_security_procs;
+CREATE TABLE IF NOT EXISTS mecb_security_procs (
+       proc  VARCHAR
+);
+
+INSERT INTO mecb_security_procs (proc) VALUES
+       ('Create Tables'),
+       ('Create Procedures'),
+       ('Part Type'),
+       ('Configuration Type'),
+       ('Part Configuration'),
+       ('Configuration List'),
+       ('Part List'),
+       ('Maintenance Type'),
+       ('Locations'),
+       ('Address Locations'),
+       ('Contact'),
+       ('Contact Location'),
+       ('Contact Detail'),
+       ('Configuration'),
+       ('Part'),
+       ('History'),
+       ('Part Location'),
+       ('Maintenance');

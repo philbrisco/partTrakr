@@ -4,6 +4,29 @@ Legal:
 	This project is distributed under the Creative Commons license.
 
 Version:
+	2.0
+	02/11/2021	Phillip Brisco
+
+	Fixed bug that prevented the part recursion from working properly.
+
+	Added tables and procedures for a future security system.
+
+	1.3.0
+	12/28/2020	Phillip Brisco
+	
+	Got rid of the audit features totally.
+
+	Deleted extraneous exception message from api_maint_type_upd.
+
+	Added the ability to delete an individual contact's record by type
+	as well as delete all types (api_contact_det_del).
+
+	Fixed a bug in api_part_del wherein the audit table was not commented out
+	correctly.
+
+	Fixed the part type so that it can only have one configuration part (they
+	have a 1 to 1 relationship).
+
 	1.2.3
 	12/05/2020	Phillip Brisco
 	Fixed a bug that would delete a part type even if a part was using it.
